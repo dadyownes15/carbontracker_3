@@ -1,0 +1,17 @@
+[package]
+name = "carbontracker-py"
+version.workspace = true
+edition = "2024"
+description = "Python bindings for carbontracker: the `carbontracker._native` module."
+
+[lib]
+name = "carbontracker_py"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+carbontracker = { path = "../engine" }
+carbontracker-cli = { path = "../cli" }
+carbontracker-providers = { path = "../providers" }
+carbontracker-run = { path = "../run" }
+chrono = "0.4.45"
+pyo3 = { version = "0.29", features = ["abi3-py39"] }

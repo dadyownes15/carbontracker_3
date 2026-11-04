@@ -1,0 +1,13 @@
+target/
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.claude/settings.local.json
+.claude/worktrees/
+.venv
+.env
+# The extension maturin develop builds into the Python sources.
+crates/python/python/carbontracker/_native*.so
+logs/

@@ -1,0 +1,106 @@
+{
+  "zone": "DK-DK2",
+  "forecast": [
+    {
+      "carbonIntensity": 301,
+      "datetime": "2026-10-24T12:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 295,
+      "datetime": "2026-10-24T13:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 288,
+      "datetime": "2026-10-24T14:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 276,
+      "datetime": "2026-10-24T15:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 270,
+      "datetime": "2026-10-24T16:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 262,
+      "datetime": "2026-10-24T17:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 255,
+      "datetime": "2026-10-24T18:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 251,
+      "datetime": "2026-10-24T19:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 248,
+      "datetime": "2026-10-24T20:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 250,
+      "datetime": "2026-10-24T21:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 259,
+      "datetime": "2026-10-24T22:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 268,
+      "datetime": "2026-10-24T23:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 280,
+      "datetime": "2026-10-25T00:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 292,
+      "datetime": "2026-10-25T01:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 305,
+      "datetime": "2026-10-25T02:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 311,
+      "datetime": "2026-10-25T03:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 318,
+      "datetime": "2026-10-25T04:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 322,
+      "datetime": "2026-10-25T05:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 319,
+      "datetime": "2026-10-25T06:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 310,
+      "datetime": "2026-10-25T07:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 298,
+      "datetime": "2026-10-25T08:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 287,
+      "datetime": "2026-10-25T09:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 279,
+      "datetime": "2026-10-25T10:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 272,
+      "datetime": "2026-10-25T11:00:00.000Z"
+    },
+    {
+      "carbonIntensity": 268,
+      "datetime": "2026-10-25T12:00:00.000Z"
+    }
+  ],
+  "updatedAt": "2026-10-24T12:05:00.000Z"
+}

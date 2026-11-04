@@ -1,0 +1,31 @@
+[build-system]
+requires = ["maturin>=1.9.4,<2"]
+build-backend = "maturin"
+
+[project]
+name = "carbontracker"
+version = "3.0.0.dev0"
+description = "Track and predict the energy consumption and carbon footprint of training deep learning models."
+requires-python = ">=3.9"
+readme = "../../README.md"
+license = { text = "MIT" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Repository = "https://github.com/dadyownes15/carbontracker_3"
+
+[project.scripts]
+carbontracker = "carbontracker.cli:main"
+
+[tool.maturin]
+python-source = "python"
+module-name = "carbontracker._native"

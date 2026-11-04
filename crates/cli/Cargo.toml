@@ -1,0 +1,32 @@
+[package]
+name = "carbontracker-cli"
+version.workspace = true
+edition = "2024"
+description = "`carbontracker <command>`: tracks the energy and emissions of a whole command."
+
+[lib]
+name = "carbontracker_cli"
+
+[[bin]]
+name = "carbontracker"
+path = "src/main.rs"
+
+[dependencies]
+carbontracker = { path = "../engine" }
+carbontracker-providers = { path = "../providers" }
+carbontracker-run = { path = "../run" }
+clap = { version = "4", features = ["derive"] }
+rpassword = "7"
+serde_json = "1"
+thiserror = "2.0.21"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "process", "signal", "time"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+assert_cmd = "2"
+chrono = "0.4.45"
+predicates = "3"
+serde_json = "1"
+tempfile = "3"

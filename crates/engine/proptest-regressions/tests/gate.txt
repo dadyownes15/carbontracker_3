@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 18ea1b02125521dce283cf0913a99072fdb6f1990a841982574f5cd1feb2bcd0 # shrinks to cooldown = After(10ms), on_cooldown = Queue, on_busy = Skip, requests = [(0ns, Cut), (2ms, Cut), (3ms, Watchdog)], reads = [Returns { after: 3ms, complete: false }]
+cc dee5ec33fd17c92a98d2e8b1122c329c5cc9c12b5051d09640860f9468600197 # shrinks to cooldown = Never, on_cooldown = Queue, on_busy = Queue, gaps = [0, 1], reads = [Returns { after: 2ms, complete: true }]

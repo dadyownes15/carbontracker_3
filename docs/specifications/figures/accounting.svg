@@ -1,0 +1,173 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500" viewBox="0 0 1000 500" role="img" aria-labelledby="title desc">
+  <title id="title">A segment is accounted once its pair has answered the cut that ends it</title>
+  <desc id="desc">The GPU and its intensity source DK-DK1 at 13.05 seconds. Five cuts on the GPU. Two segments are accounted; one waits for an intensity read still out; two wait behind it, though both their cuts are answered.</desc>
+  <style>
+    svg { --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --faint: #d1d9e0; --lane: #f6f8fa;
+          --done: #2a9d8f; --wait: #e09f3e; --open: #eaeef2; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --faint: #3d444d; --lane: #161b22;
+            --done: #36b3a2; --wait: #e8ab4f; --open: #21262d; }
+    }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; fill: var(--fg);
+           paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+    .title { font-size: 16px; font-weight: 600; }
+    .muted { fill: var(--muted); }
+    .small { font-size: 11px; }
+    .label { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; fill: var(--muted); }
+    .name { font-weight: 600; }
+    .ok { fill: var(--done); font-weight: 600; }
+    .no { fill: var(--wait); font-weight: 600; }
+    .bg { fill: var(--bg); }
+    .lane { fill: var(--lane); stroke: var(--faint); }
+    .done { fill: var(--done); }
+    .waitfill { fill: var(--wait); }
+    .seg { stroke: var(--bg); stroke-width: 1; }
+    .open { fill: var(--open); stroke: var(--fg); stroke-width: 1; stroke-dasharray: 3 2; }
+    .pill { fill: var(--bg); fill-opacity: .92; }
+    .guide { stroke: var(--faint); stroke-width: 1; }
+    .cut { stroke: var(--fg); stroke-width: 1; stroke-dasharray: 2 3; opacity: .75; }
+    .tri { fill: var(--fg); }
+    .now { stroke: var(--wait); stroke-width: 1.5; stroke-dasharray: 5 3; }
+    .nowtext { fill: var(--wait); font-weight: 600; font-size: 11px; }
+    .read { fill: var(--fg); stroke: var(--bg); stroke-width: 1.5; }
+    .future { fill: var(--bg); stroke: var(--fg); stroke-width: 1.5; stroke-dasharray: 2 2; }
+    .skip { fill: var(--bg); stroke: var(--fg); stroke-width: 1.5; }
+    .out { stroke: var(--fg); stroke-width: 3; stroke-linecap: round; }
+    .outfuture { stroke: var(--fg); stroke-width: 1.5; stroke-dasharray: 2 3; }
+    .link { fill: none; stroke: var(--fg); stroke-width: 1.2; }
+    .held { fill: none; stroke: var(--muted); stroke-width: 2; }
+    .arrowhead { fill: var(--fg); }
+  </style>
+  <defs>
+    <pattern id="waiting" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="6" height="6" class="waitfill" fill-opacity=".3"/>
+      <rect width="2.5" height="6" class="waitfill"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" class="arrowhead"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="500"/>
+
+  <text class="title" x="24" y="32">A segment is accounted once its pair has answered the cut that ends it</text>
+  <text class="muted" x="24" y="52">The GPU and its intensity source DK-DK1, at 13.05 s. Segments on a source are accounted in order.</text>
+
+  <!-- Guides at each cut -->
+  <line x1="250" y1="152" x2="250" y2="372" class="guide"/>
+  <line x1="370" y1="152" x2="370" y2="372" class="guide"/>
+  <line x1="510" y1="152" x2="510" y2="372" class="guide"/>
+  <line x1="670" y1="152" x2="670" y2="372" class="guide"/>
+  <line x1="810" y1="152" x2="810" y2="372" class="guide"/>
+
+  <!-- Cuts -->
+  <text class="label" x="24" y="96">CUTS</text>
+  <text class="small" x="250" y="94" text-anchor="middle"><tspan class="name">c0</tspan><tspan class="muted"> 10.0</tspan></text>
+  <text class="small" x="370" y="94" text-anchor="middle"><tspan class="name">c1</tspan><tspan class="muted"> 10.6</tspan></text>
+  <text class="small" x="510" y="94" text-anchor="middle"><tspan class="name">c2</tspan><tspan class="muted"> 11.3</tspan></text>
+  <text class="small" x="670" y="94" text-anchor="middle"><tspan class="name">c3</tspan><tspan class="muted"> 12.1</tspan></text>
+  <text class="small" x="810" y="94" text-anchor="middle"><tspan class="name">c4</tspan><tspan class="muted"> 12.8</tspan></text>
+  <path d="M246,99 L254,99 L250,105 z" class="tri"/>
+  <path d="M366,99 L374,99 L370,105 z" class="tri"/>
+  <path d="M506,99 L514,99 L510,105 z" class="tri"/>
+  <path d="M666,99 L674,99 L670,105 z" class="tri"/>
+  <path d="M806,99 L814,99 L810,105 z" class="tri"/>
+
+  <!-- GPU lane: segments by state -->
+  <text class="name" x="24" y="126">GPU</text>
+  <text class="small muted" x="24" y="141">NVML · 1 s · Queue</text>
+  <rect x="210" y="112" width="40" height="40" class="done seg"/>
+  <rect x="250" y="112" width="120" height="40" class="done seg"/>
+  <rect x="370" y="112" width="140" height="40" fill="url(#waiting)" class="seg"/>
+  <rect x="510" y="112" width="160" height="40" fill="url(#waiting)" class="seg"/>
+  <rect x="670" y="112" width="140" height="40" fill="url(#waiting)" class="seg"/>
+  <rect x="810.5" y="112.5" width="49" height="39" class="open"/>
+  <rect x="277" y="124" width="66" height="16" rx="8" class="pill"/><text class="small" x="310" y="136" text-anchor="middle">accounted</text>
+  <rect x="390" y="124" width="100" height="16" rx="8" class="pill"/><text class="small" x="440" y="136" text-anchor="middle">waits for DK-DK1</text>
+  <rect x="550" y="124" width="80" height="16" rx="8" class="pill"/><text class="small" x="590" y="136" text-anchor="middle">waits behind</text>
+  <rect x="700" y="124" width="80" height="16" rx="8" class="pill"/><text class="small" x="740" y="136" text-anchor="middle">waits behind</text>
+  <text class="small" x="835" y="136" text-anchor="middle">open</text>
+  <line x1="250" y1="106" x2="250" y2="152" class="cut"/>
+  <line x1="370" y1="106" x2="370" y2="152" class="cut"/>
+  <line x1="510" y1="106" x2="510" y2="152" class="cut"/>
+  <line x1="670" y1="106" x2="670" y2="152" class="cut"/>
+  <line x1="810" y1="106" x2="810" y2="152" class="cut"/>
+
+  <!-- NVML reads and the cuts each answers -->
+  <text class="small muted" x="24" y="182">its reads</text>
+  <path d="M250,153 L250,170" class="link" marker-end="url(#arrow)"/>
+  <path d="M370,153 C370,166 450,160 450,170" class="link" marker-end="url(#arrow)"/>
+  <path d="M510,153 C510,166 650,160 650,170" class="link" marker-end="url(#arrow)"/>
+  <path d="M670,153 C670,166 850,158 850,170" class="link" marker-end="url(#arrow)"/>
+  <path d="M810,153 C810,164 850,162 850,170" class="link" marker-end="url(#arrow)"/>
+  <circle cx="250" cy="176" r="4" class="read"/>
+  <circle cx="450" cy="176" r="4" class="read"/>
+  <circle cx="650" cy="176" r="4" class="read"/>
+  <circle cx="850" cy="176" r="4" class="read"/>
+  <text class="small muted" x="250" y="194" text-anchor="middle">read 10.0</text>
+  <text class="small muted" x="450" y="194" text-anchor="middle">read 11.0</text>
+  <text class="small muted" x="650" y="194" text-anchor="middle">read 12.0</text>
+  <text class="small muted" x="850" y="194" text-anchor="end">read 13.0 answers c3 and c4</text>
+
+  <!-- DK-DK1 lane -->
+  <text class="name" x="24" y="236">DK-DK1</text>
+  <text class="small muted" x="24" y="251">Electricity Maps · Skip</text>
+  <rect x="210" y="222" width="720" height="34" rx="3" class="lane"/>
+  <path d="M210,239 L860,239" class="held"/>
+  <text class="small muted" x="852" y="235" text-anchor="end">held</text>
+
+  <!-- How DK-DK1 answers each cut -->
+  <path d="M250,257 L250,286" class="link" marker-end="url(#arrow)"/>
+  <path d="M370,257 C370,276 262,272 256,288" class="link" marker-end="url(#arrow)"/>
+  <path d="M510,257 L510,266" class="link" marker-end="url(#arrow)"/>
+  <path d="M670,257 L670,286" class="link" marker-end="url(#arrow)"/>
+  <path d="M810,257 C810,276 682,272 676,288" class="link" marker-end="url(#arrow)"/>
+  <line x1="510" y1="272" x2="860" y2="272" class="out"/>
+  <line x1="860" y1="272" x2="870" y2="272" class="outfuture"/>
+  <circle cx="510" cy="272" r="4" class="read"/>
+  <circle cx="870" cy="272" r="4" class="future"/>
+  <text class="small" x="880" y="276">lands 13.10</text>
+  <text class="small muted" x="585" y="290" text-anchor="middle">read out since 11.3</text>
+  <circle cx="250" cy="294" r="5" class="skip"/>
+  <circle cx="670" cy="294" r="5" class="skip"/>
+  <text class="small muted" x="250" y="314" text-anchor="middle">Skipped, cooldown</text>
+  <text class="small muted" x="670" y="314" text-anchor="middle">Skipped, busy</text>
+
+  <!-- Now -->
+  <line x1="860" y1="72" x2="860" y2="372" class="now"/>
+  <text class="nowtext" x="866" y="80">now 13.05</text>
+
+  <!-- Answered table -->
+  <text class="small muted" x="196" y="346" text-anchor="end">GPU answered</text>
+  <text class="small muted" x="196" y="366" text-anchor="end">DK-DK1 answered</text>
+  <text class="small" x="250" y="346" text-anchor="middle"><tspan class="ok">✓</tspan> read 10.0</text>
+  <text class="small" x="370" y="346" text-anchor="middle"><tspan class="ok">✓</tspan> read 11.0</text>
+  <text class="small" x="510" y="346" text-anchor="middle"><tspan class="ok">✓</tspan> read 12.0</text>
+  <text class="small" x="670" y="346" text-anchor="middle"><tspan class="ok">✓</tspan> read 13.0</text>
+  <text class="small" x="810" y="346" text-anchor="middle"><tspan class="ok">✓</tspan> read 13.0</text>
+  <text class="small" x="250" y="366" text-anchor="middle"><tspan class="ok">✓</tspan> Skipped</text>
+  <text class="small" x="370" y="366" text-anchor="middle"><tspan class="ok">✓</tspan> relies on c0's</text>
+  <text class="small" x="510" y="366" text-anchor="middle"><tspan class="no">…</tspan> read out</text>
+  <text class="small" x="670" y="366" text-anchor="middle"><tspan class="ok">✓</tspan> Skipped</text>
+  <text class="small" x="810" y="366" text-anchor="middle"><tspan class="ok">✓</tspan> relies on c3's</text>
+
+  <!-- Takeaway -->
+  <text x="24" y="404">c3 and c4 are answered on both sources, yet wait: the segment before them waits for the DK-DK1 read.</text>
+  <text x="24" y="422">When it lands at 13.10, all three are accounted together, against its new sample.</text>
+
+  <!-- Legend -->
+  <rect x="24" y="452" width="22" height="12" class="done"/>
+  <text class="small" x="54" y="462">accounted</text>
+  <rect x="164" y="452" width="22" height="12" fill="url(#waiting)"/>
+  <text class="small" x="194" y="462">waiting</text>
+  <rect x="294.5" y="452.5" width="21" height="11" class="open"/>
+  <text class="small" x="324" y="462">open</text>
+  <circle cx="414" cy="458" r="4" class="read"/>
+  <text class="small" x="426" y="462">read starts</text>
+  <line x1="544" y1="458" x2="572" y2="458" class="out"/>
+  <text class="small" x="582" y="462">read out</text>
+  <circle cx="680" cy="458" r="5" class="skip"/>
+  <text class="small" x="692" y="462">Skipped at once</text>
+  <path d="M808,462 Q820,450 832,460" class="link" marker-end="url(#arrow)"/>
+  <text class="small" x="842" y="462">answered by</text>
+</svg>

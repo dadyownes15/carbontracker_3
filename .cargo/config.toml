@@ -1,0 +1,3 @@
+[alias]
+# Writes target/review/printouts.html: every standard case, as the terminal shows it.
+review-printouts = "test -p carbontracker-cli --test review_printouts"

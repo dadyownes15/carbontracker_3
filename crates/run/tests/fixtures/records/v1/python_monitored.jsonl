@@ -1,0 +1,19 @@
+{"at":"2025-10-25T08:12:13Z","kind":"run","format":1,"carbontracker":"3.0.0","frontend":"python","command":["train.py","--lr","0.1"],"config":{"interval_s":1.0,"pue":1.58,"components":null,"location":{"estimated":{"country":"DK","coordinates":[55.68,12.57],"by":"ip-geolocation"}}},"epochs":{"planned":10,"monitor":2,"before_prediction":1}}
+{"at":"2025-10-25T08:12:23Z","kind":"probe","candidates":[{"name":"macmon","verdict":"serving","series":["cpu"]},{"name":"powermetrics","verdict":"covered"},{"name":"electricity-maps","verdict":"serving","series":["DK-DK2"]}]}
+{"at":"2025-10-25T08:12:33Z","kind":"catalog","sources":[{"id":"3.0","role":"power","label":"Apple M2 Pro (cpu)","device":"Apple M2 Pro","domain":"cpu","scope":"device_total","unit":"W","fidelity":"measured"},{"id":"4.0","role":"power","label":"NVIDIA A100 (gpu)","device":"NVIDIA A100","domain":"gpu","scope":"device_total","unit":"W","fidelity":"measured"},{"id":"5.0","role":"power","label":"Apple M2 Pro (ram)","device":"Apple M2 Pro","domain":"ram","scope":"device_total","unit":"W","fidelity":"measured"},{"id":"7.0","role":"intensity","label":"grid DK-DK2","location":{"zone":"DK-DK2"},"unit":"g/kWh","fidelity":"measured"},{"id":"8.0","role":"intensity","label":"grid SE-SE3","location":{"zone":"SE-SE3"},"unit":"g/kWh","fidelity":"measured"}],"pairs":{"3.0":"7.0","4.0":"8.0"}}
+{"at":"2025-10-25T08:12:04Z","kind":"span_started","span":1,"name":"epoch","parent":null,"billed":"all"}
+{"at":"2025-10-25T08:12:43Z","kind":"readout","samples":{"3.0":[["2025-10-25T08:12:05Z",3.21]]},"failed":{"7.0":{"failure":"provider","error":"unavailable","detail":"network down"}}}
+{"at":"2025-10-25T08:12:53Z","kind":"readout","unchanged":["3.0"],"skipped":{"7.0":"cooldown"}}
+{"at":"2025-10-25T08:13:03Z","kind":"readout","failed":{"3.0":{"failure":"panicked","detail":"the driver exploded"},"7.0":{"failure":"timed_out"}}}
+{"at":"2025-10-25T08:12:33Z","kind":"span_started","span":2,"name":"eval","parent":1,"billed":{"domains":["cpu"]}}
+{"at":"2025-10-25T08:12:34Z","kind":"marked","span":2,"work":[{"kind":"samples","amount":64.0}]}
+{"at":"2025-10-25T08:12:43Z","kind":"span_stopped","span":2,"work":[{"kind":"batches","amount":2.0}]}
+{"at":"2025-10-25T08:13:04Z","kind":"span_stopped","span":1,"work":[]}
+{"at":"2025-10-25T08:13:13Z","kind":"span_settled","span":1,"name":"epoch","duration_s":60.0,"energy_kwh":0.0101,"emissions_g":1.52,"exclusive_energy_kwh":0.0101,"exclusive_emissions_g":1.52,"per_source":{"3.0":{"energy_kwh":0.0101,"emissions_g":1.52}},"samples":{"3.0":60},"warnings":[]}
+{"at":"2025-10-25T08:13:23Z","kind":"refused","span":2,"error":"span 2 has already stopped"}
+{"at":"2025-10-25T08:13:05Z","kind":"span_started","span":3,"name":"epoch","parent":null,"billed":"all"}
+{"at":"2025-10-25T08:14:05Z","kind":"span_stopped","span":3,"work":[]}
+{"at":"2025-10-25T08:13:33Z","kind":"span_settled","span":3,"name":"epoch","duration_s":60.0,"energy_kwh":0.0103,"emissions_g":1.55,"exclusive_energy_kwh":0.0103,"exclusive_emissions_g":1.55,"per_source":{"3.0":{"energy_kwh":0.0103,"emissions_g":1.55}},"samples":{"3.0":60},"warnings":[]}
+{"at":"2025-10-25T08:13:43Z","kind":"gap"}
+{"at":"2025-10-25T08:13:53Z","kind":"outcome","ended":"monitored","epochs_done":2}
+{"at":"2025-10-25T08:14:03Z","kind":"session","duration_s":123.0,"energy_kwh":0.0249,"emissions_g":3.2,"claimed":{"energy_kwh":0.0247,"emissions_g":3.17},"unclaimed":{"energy_kwh":0.0002,"emissions_g":0.03},"per_source":{"3.0":{"energy_kwh":0.0204,"emissions_g":3.04},"4.0":{"energy_kwh":0.004,"emissions_g":0.16},"5.0":{"energy_kwh":0.0005,"emissions_g":null}},"samples":{"3.0":123,"4.0":120,"5.0":61},"intensities":[{"source":"7.0","label":"grid DK-DK2","fidelity":"measured","mean_g_per_kwh":149.01960784313724},{"source":"8.0","label":"grid SE-SE3","fidelity":"measured","mean_g_per_kwh":40.0}],"warnings":["no grid intensity covered Apple M2 Pro (ram) in this span, so its emissions are unknown"]}

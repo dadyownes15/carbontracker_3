@@ -1,0 +1,202 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="584" viewBox="0 0 1000 584" role="img" aria-labelledby="title desc">
+  <title id="title">Cuts split the bill; reads measure it</title>
+  <desc id="desc">Spans P, B, C and A over 1.25 seconds. The CPU is cut by every span, the GPU only by spans that selected it. Three cuts on the GPU are answered by one NVML read. A settles at once; B waits for that read.</desc>
+  <style>
+    svg { --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --faint: #d1d9e0; --lane: #f6f8fa;
+          --p: #a3acb7; --a: #2a9d8f; --b: #e09f3e; --c: #7c6df2; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --faint: #3d444d; --lane: #161b22;
+            --p: #6e7681; --a: #36b3a2; --b: #e8ab4f; --c: #8d80ff; }
+    }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; fill: var(--fg);
+           paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+    .title { font-size: 16px; font-weight: 600; }
+    .muted { fill: var(--muted); }
+    .small { font-size: 11px; }
+    .label { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; fill: var(--muted); }
+    .name { font-weight: 600; }
+    .bg { fill: var(--bg); }
+    .lane { fill: var(--lane); stroke: var(--faint); }
+    .fp { fill: var(--p); } .fa { fill: var(--a); } .fb { fill: var(--b); } .fc { fill: var(--c); }
+    .seg { stroke: var(--bg); stroke-width: 1; }
+    .open { fill-opacity: .4; }
+    .pill { fill: var(--bg); fill-opacity: .92; }
+    .cut { stroke: var(--fg); stroke-width: 1; stroke-dasharray: 2 3; opacity: .75; }
+    .tri { fill: var(--fg); }
+    .readline { stroke: var(--fg); stroke-width: 1.5; }
+    .read { fill: var(--fg); stroke: var(--bg); stroke-width: 1.5; }
+    .queued { fill: var(--bg); stroke: var(--fg); stroke-width: 1.5; }
+    .skip { fill: var(--bg); stroke: var(--fg); stroke-width: 1.5; }
+    .link { fill: none; stroke: var(--fg); stroke-width: 1.2; }
+    .leader { fill: none; stroke: var(--muted); stroke-width: 1; }
+    .held { fill: none; stroke: var(--muted); stroke-width: 2; }
+    .tick { stroke: var(--muted); stroke-width: 1.2; }
+    .axis { stroke: var(--muted); stroke-width: 1; }
+    .wait { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 1 3; stroke-linecap: round; }
+    .settle { fill: var(--fg); }
+    .arrowhead { fill: var(--fg); }
+  </style>
+  <defs>
+    <pattern id="ab" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="3" height="6" class="fa"/><rect x="3" width="3" height="6" class="fb"/>
+    </pattern>
+    <pattern id="ac" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="3" height="6" class="fa"/><rect x="3" width="3" height="6" class="fc"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" class="arrowhead"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="584"/>
+
+  <text class="title" x="24" y="32">Cuts split the bill; reads measure it</text>
+  <text class="muted" x="24" y="52">P runs throughout; B, C and A are its children. A span cuts only the sources it selected. NVML answers three cuts with one read.</text>
+
+  <!-- Spans -->
+  <text class="label" x="24" y="83">SPANS</text>
+  <text x="196" y="83" text-anchor="end"><tspan class="name">P</tspan><tspan class="muted"> · all</tspan></text>
+  <rect x="210" y="72" width="750" height="14" rx="3" class="fp"/>
+
+  <text x="196" y="103" text-anchor="end"><tspan class="name">B</tspan><tspan class="muted"> · all</tspan></text>
+  <rect x="210" y="92" width="240" height="14" rx="3" class="fb"/>
+  <line x1="454" y1="99" x2="874" y2="99" class="wait"/>
+  <path d="M882,93 L888,99 L882,105 L876,99 z" class="settle"/>
+  <text class="small" x="894" y="103">settles 4.02</text>
+
+  <text x="196" y="123" text-anchor="end"><tspan class="name">C</tspan><tspan class="muted"> · all</tspan></text>
+  <rect x="456" y="112" width="504" height="14" rx="3" class="fc"/>
+
+  <text x="196" y="143" text-anchor="end"><tspan class="name">A</tspan><tspan class="muted"> · CPU only</tspan></text>
+  <rect x="300" y="132" width="420" height="14" rx="3" class="fa"/>
+  <path d="M730,133 L736,139 L730,145 L724,139 z" class="settle"/>
+  <text class="small" x="742" y="143">settles 3.75, on RAPL alone</text>
+
+  <!-- Cuts -->
+  <text class="label" x="24" y="178">CUTS</text>
+  <text class="small" x="300" y="176" text-anchor="middle">start A</text>
+  <text class="small" x="453" y="176" text-anchor="middle">stop B · start C</text>
+  <text class="small" x="720" y="176" text-anchor="middle">stop A</text>
+  <text class="small" x="810" y="176" text-anchor="middle">mark C</text>
+  <path d="M296,181 L304,181 L300,187 z" class="tri"/>
+  <path d="M446,181 L454,181 L450,187 z" class="tri"/>
+  <path d="M452,181 L460,181 L456,187 z" class="tri"/>
+  <path d="M716,181 L724,181 L720,187 z" class="tri"/>
+  <path d="M806,181 L814,181 L810,187 z" class="tri"/>
+
+  <!-- CPU lane -->
+  <text class="name" x="24" y="222">CPU</text>
+  <text class="small muted" x="24" y="237">RAPL · 10 ms · Queue</text>
+  <text class="small muted" x="24" y="251">intensity: DK-DK1</text>
+  <rect x="210" y="208" width="90" height="40" class="fb seg"/>
+  <rect x="300" y="208" width="150" height="40" fill="url(#ab)" class="seg"/>
+  <rect x="450" y="208" width="6" height="40" class="fa seg"/>
+  <rect x="456" y="208" width="264" height="40" fill="url(#ac)" class="seg"/>
+  <rect x="720" y="208" width="90" height="40" class="fc seg"/>
+  <rect x="810" y="208" width="150" height="40" class="fc seg open"/>
+  <rect x="245" y="220" width="20" height="16" rx="8" class="pill"/><text class="small" x="255" y="232" text-anchor="middle">B</text>
+  <rect x="354" y="220" width="42" height="16" rx="8" class="pill"/><text class="small" x="375" y="232" text-anchor="middle">A + B</text>
+  <rect x="567" y="220" width="42" height="16" rx="8" class="pill"/><text class="small" x="588" y="232" text-anchor="middle">A + C</text>
+  <rect x="755" y="220" width="20" height="16" rx="8" class="pill"/><text class="small" x="765" y="232" text-anchor="middle">C</text>
+  <rect x="855" y="220" width="60" height="16" rx="8" class="pill"/><text class="small" x="885" y="232" text-anchor="middle">C · open</text>
+
+  <!-- GPU lane -->
+  <text class="name" x="24" y="312">GPU</text>
+  <text class="small muted" x="24" y="327">NVML · 1 s · Queue</text>
+  <text class="small muted" x="24" y="341">intensity: DK-DK1</text>
+  <rect x="210" y="298" width="240" height="40" class="fb seg"/>
+  <rect x="450" y="298" width="6" height="40" class="fp seg"/>
+  <rect x="456" y="298" width="354" height="40" class="fc seg"/>
+  <rect x="810" y="298" width="150" height="40" class="fc seg open"/>
+  <rect x="320" y="310" width="20" height="16" rx="8" class="pill"/><text class="small" x="330" y="322" text-anchor="middle">B</text>
+  <rect x="623" y="310" width="20" height="16" rx="8" class="pill"/><text class="small" x="633" y="322" text-anchor="middle">C</text>
+  <rect x="890" y="310" width="60" height="16" rx="8" class="pill"/><text class="small" x="920" y="322" text-anchor="middle">C · open</text>
+
+  <!-- Cut lines: A's cuts reach the CPU only -->
+  <line x1="300" y1="188" x2="300" y2="248" class="cut"/>
+  <line x1="720" y1="188" x2="720" y2="248" class="cut"/>
+  <line x1="450" y1="188" x2="450" y2="338" class="cut"/>
+  <line x1="456" y1="188" x2="456" y2="338" class="cut"/>
+  <line x1="810" y1="188" x2="810" y2="338" class="cut"/>
+
+  <!-- RAPL reads: one at each cut -->
+  <line x1="300" y1="208" x2="300" y2="248" class="readline"/>
+  <line x1="450" y1="208" x2="450" y2="248" class="readline"/>
+  <line x1="456" y1="208" x2="456" y2="248" class="readline"/>
+  <line x1="720" y1="208" x2="720" y2="248" class="readline"/>
+  <line x1="810" y1="208" x2="810" y2="248" class="readline"/>
+  <circle cx="300" cy="208" r="3.5" class="read"/>
+  <circle cx="450" cy="208" r="3.5" class="read"/>
+  <circle cx="456" cy="208" r="3.5" class="read"/>
+  <circle cx="720" cy="208" r="3.5" class="read"/>
+  <circle cx="810" cy="208" r="3.5" class="read"/>
+
+  <!-- NVML reads -->
+  <line x1="270" y1="298" x2="270" y2="338" class="readline"/>
+  <circle cx="270" cy="298" r="3.5" class="read"/>
+  <text class="small" x="270" y="291" text-anchor="middle">read 1</text>
+  <line x1="870" y1="298" x2="870" y2="338" class="readline"/>
+  <circle cx="870" cy="298" r="3.5" class="read"/>
+  <text class="small" x="876" y="291" text-anchor="middle">read 2</text>
+
+  <!-- Sliver callout -->
+  <path d="M470,264 L458,252" class="leader"/>
+  <path d="M470,282 L458,294" class="leader"/>
+  <text class="small" x="474" y="268">10 ms sliver on each source, billed by its width:</text>
+  <text class="small" x="474" y="283">A's on the CPU, P's on the GPU. Nothing waits on it.</text>
+
+  <!-- One queued request answers three cuts -->
+  <rect x="446" y="335" width="8" height="8" class="queued"/>
+  <path d="M450,344 Q660,404 867,341" class="link" marker-end="url(#arrow)"/>
+  <path d="M456,344 Q663,396 867,341" class="link" marker-end="url(#arrow)"/>
+  <path d="M810,340 Q838,366 867,341" class="link" marker-end="url(#arrow)"/>
+  <text class="small" x="660" y="392" text-anchor="middle">Stop B queues one request; start C and mark C rely on it. Read 2 answers all three.</text>
+
+  <!-- Intensity lane -->
+  <text class="name" x="24" y="428">DK-DK1</text>
+  <text class="small muted" x="24" y="442">Electricity Maps</text>
+  <text class="small muted" x="24" y="456">1 min · Skip</text>
+  <rect x="210" y="416" width="750" height="34" rx="3" class="lane"/>
+  <path d="M210,428 L960,428" class="held"/>
+  <text class="small muted" x="952" y="444" text-anchor="end">held: last read before 2.90</text>
+  <line x1="450" y1="423" x2="450" y2="433" class="tick"/>
+  <line x1="456" y1="423" x2="456" y2="433" class="tick"/>
+  <line x1="720" y1="423" x2="720" y2="433" class="tick"/>
+  <line x1="810" y1="423" x2="810" y2="433" class="tick"/>
+  <circle cx="300" cy="428" r="5" class="skip"/>
+  <text class="small" x="300" y="466" text-anchor="middle">start A: Skipped at once</text>
+  <text class="small muted" x="633" y="466" text-anchor="middle">the cuts after it rely on that answer, on the held value</text>
+
+  <!-- Time axis -->
+  <line x1="210" y1="486" x2="960" y2="486" class="axis"/>
+  <line x1="270" y1="486" x2="270" y2="491" class="axis"/>
+  <line x1="420" y1="486" x2="420" y2="491" class="axis"/>
+  <line x1="570" y1="486" x2="570" y2="491" class="axis"/>
+  <line x1="720" y1="486" x2="720" y2="491" class="axis"/>
+  <line x1="870" y1="486" x2="870" y2="491" class="axis"/>
+  <text class="small muted" x="270" y="504" text-anchor="middle">3.00 s</text>
+  <text class="small muted" x="420" y="504" text-anchor="middle">3.25</text>
+  <text class="small muted" x="570" y="504" text-anchor="middle">3.50</text>
+  <text class="small muted" x="720" y="504" text-anchor="middle">3.75</text>
+  <text class="small muted" x="870" y="504" text-anchor="middle">4.00</text>
+
+  <!-- Legend -->
+  <rect x="24" y="526" width="22" height="12" fill="url(#ab)"/>
+  <text class="small" x="54" y="536">two claimants share</text>
+  <rect x="254" y="526" width="22" height="12" class="fc open"/>
+  <text class="small" x="284" y="536">open: not ended yet</text>
+  <line x1="490" y1="524" x2="490" y2="540" class="cut"/>
+  <text class="small" x="502" y="536">cut</text>
+  <line x1="720" y1="524" x2="720" y2="540" class="readline"/>
+  <circle cx="720" cy="526" r="3.5" class="read"/>
+  <text class="small" x="732" y="536">read starts</text>
+
+  <rect x="31" y="550" width="8" height="8" class="queued"/>
+  <text class="small" x="54" y="559">request queued</text>
+  <circle cx="265" cy="554" r="5" class="skip"/>
+  <text class="small" x="284" y="559">request Skipped at once</text>
+  <path d="M480,558 Q492,546 504,556" class="link" marker-end="url(#arrow)"/>
+  <text class="small" x="514" y="559">answered by</text>
+  <path d="M720,548 L726,554 L720,560 L714,554 z" class="settle"/>
+  <text class="small" x="732" y="559">span settles</text>
+</svg>
