@@ -15,14 +15,24 @@ span can be any part of your code, so carbontracker is no longer limited to
 training loops: an inference server, a data pipeline or a shell script can be
 tracked the same way.
 
+## Install
+
 ```sh
-pip install "carbontracker @ git+https://github.com/dadyownes15/carbontracker_3.git#subdirectory=crates/python"
+pip install --no-index --find-links https://github.com/dadyownes15/carbontracker_3/releases/expanded_assets/v3.0.0.dev0 carbontracker
 ```
 
-Python 3.9+ and a Rust toolchain ([rustup](https://rustup.rs)). Linux (Intel
-RAPL, NVIDIA) and macOS on Apple silicon. On Linux, the CPU is measured only
-if `/sys/class/powercap/intel-rapl:*/energy_uj` is readable; most kernels
-allow root only, so run `sudo chmod o+r` on those files.
+| Requires | |
+|---|---|
+| Python | 3.9 or later |
+| Linux | Intel CPUs (RAPL) and NVIDIA GPUs |
+| macOS | Apple silicon |
+
+On Linux, the CPU's energy files are readable by root only on most systems.
+To measure the CPU as a normal user, run this once after each boot:
+
+```sh
+sudo chmod o+r /sys/class/powercap/intel-rapl:*/energy_uj
+```
 
 ## Track a training loop
 
