@@ -51,6 +51,7 @@ pub(crate) const STATIC_CPU: ProviderId = ProviderId(13);
 pub(crate) const STATIC_GPU: ProviderId = ProviderId(14);
 /// NVML GPUs without an energy counter, read by their power instead.
 pub(crate) const NVML_POWER: ProviderId = ProviderId(15);
+#[cfg(target_os = "macos")]
 pub(crate) const IOREPORT: ProviderId = ProviderId(16);
 
 /// The default provider registry: the ranked candidates above, probed

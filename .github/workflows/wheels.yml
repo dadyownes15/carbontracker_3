@@ -17,7 +17,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest, target: x86_64, test: true }
-          - { os: ubuntu-latest, target: aarch64, test: false }
+          - { os: ubuntu-24.04-arm, target: aarch64, test: true }
           - { os: macos-latest, target: aarch64, test: true }
     runs-on: ${{ matrix.os }}
     steps:
@@ -39,9 +39,10 @@ jobs:
       - name: Test the wheel
         if: matrix.test
         run: |
-          pip install dist/*.whl pytest
+          pip install dist/*.whl
           carbontracker --help
-          cd crates/python/tests && pytest -q
+          carbontracker --no-log --global --power 10 --intensity 100 python -c "print('tracked')"
+          python -c "from carbontracker import CarbonTracker; t = CarbonTracker(epochs=1, power=10, intensity=100, global_=True, verbose=0); t.epoch_start(); t.epoch_end(); assert t.stop().total.energy_kwh > 0"
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.os }}-${{ matrix.target }}

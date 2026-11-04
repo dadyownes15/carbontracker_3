@@ -762,7 +762,8 @@ def command(*arguments):
 
 # AC/PY-42
 def test_installing_the_package_installs_the_command():
-    [entry] = [entry for entry in importlib.metadata.entry_points(group="console_scripts") if entry.name == "carbontracker"]
+    distribution = importlib.metadata.distribution("carbontracker")
+    [entry] = [entry for entry in distribution.entry_points if entry.group == "console_scripts" and entry.name == "carbontracker"]
     assert entry.value == "carbontracker.cli:main"
 
     pinned = ["--global", "--power", "10", "--intensity", "100", "--no-log"]

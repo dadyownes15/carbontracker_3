@@ -323,7 +323,6 @@ from carbontracker import CarbonTracker
 with CarbonTracker(
     mode="profiler",
     wait=True,
-    sync_streams=True,
     settle_s=0.0,
     subtract_baseline=True,
     baseline_w=None,
@@ -394,7 +393,6 @@ counter.
 | Option | Default | Does |
 |---|---|---|
 | `wait` | `True` | Wait for a fresh read at each span's start and end. `False` never waits, and short spans blur as in tracker mode. Concurrent spans, such as two requests at once, never wait |
-| `sync_streams` | `True` | Wait for queued CUDA work to finish before a span ends, when PyTorch uses CUDA |
 | `settle_s` | `0.0` | Idle this long before each span, so every call starts from idle clocks. Slower, steadier |
 | `subtract_baseline` | `True` | Subtract the idle draw. `False` reports everything measured in the span's window |
 | `baseline_w` | `None` | A known idle draw in watts. `None` measures it at the start |
