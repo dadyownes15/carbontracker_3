@@ -110,7 +110,11 @@ pub fn significant(value: f64) -> String {
     if value == 0.0 || !value.is_finite() {
         return format!("{value}");
     }
-    let digits = (3 - 1 - value.abs().log10().floor() as i32).max(0) as usize;
+    let decimals = |value: f64| (3 - 1 - value.abs().log10().floor() as i32).max(0) as usize;
+    // Rounding can carry into the next power of ten, which takes a decimal less.
+    let digits = decimals(value);
+    let rounded = format!("{value:.digits$}").parse().unwrap_or(value);
+    let digits = decimals(rounded);
     format!("{value:.digits$}")
 }
 
@@ -215,6 +219,13 @@ mod tests {
         assert_eq!(significant(21.33), "21.3");
         assert_eq!(significant(1234.4), "1234");
         assert_eq!(significant(0.0000194), "0.0000194");
+    }
+
+    #[test]
+    fn rounding_up_to_the_next_power_of_ten_keeps_three_figures() {
+        assert_eq!(significant(99.99999), "100");
+        assert_eq!(significant(9.996), "10.0");
+        assert_eq!(significant(0.09996), "0.100");
     }
 
     #[test]

@@ -447,13 +447,15 @@ fn finite(value: f64) -> Option<f64> {
     value.is_finite().then_some(value)
 }
 
-/// Seconds at microsecond resolution; millisecond truncation per piece skewed
-/// `∫P·I dt` by ~2e-3 on sub-second spans. Falls back to ms past ~292k years.
+/// Seconds at nanosecond resolution, the clock's own: truncating each piece
+/// to a coarser unit loses time wherever a reading splits one. Falls back to
+/// microseconds past ~292 years.
 fn secs_between(from: Timestamp, to: Timestamp) -> f64 {
     let delta = to - from;
-    match delta.num_microseconds() {
-        Some(microseconds) => microseconds as f64 * 1e-6,
-        None => delta.num_milliseconds() as f64 * 1e-3,
+    match (delta.num_nanoseconds(), delta.num_microseconds()) {
+        (Some(nanoseconds), _) => nanoseconds as f64 * 1e-9,
+        (None, Some(microseconds)) => microseconds as f64 * 1e-6,
+        (None, None) => delta.num_milliseconds() as f64 * 1e-3,
     }
 }
 
@@ -714,6 +716,39 @@ mod tests {
             .unwrap()
             .get();
         assert!((grams - 100.0).abs() < 1e-9, "got {grams}");
+    }
+
+    /// AC/MEAS-77, AC/MEAS-78
+    #[test]
+    fn readings_between_microseconds_lose_no_time() {
+        let ns = |nanos| chrono::DateTime::UNIX_EPOCH + chrono::TimeDelta::nanoseconds(nanos);
+        let mut sample_store = SampleStore::new(
+            [
+                (cpu(), SourceKind::Power, SampleKind::Instant),
+                (gpu(), SourceKind::Intensity, SampleKind::Held),
+            ],
+            4,
+        )
+        .unwrap();
+        sample_store
+            .store(cpu(), vec![Sample::new(ns(1_500), 10.0)])
+            .unwrap();
+        sample_store
+            .store(gpu(), vec![Sample::new(ns(3_100), 100.0)])
+            .unwrap();
+        let interval = TimeInterval::new(ns(0), ns(4_700)).unwrap();
+
+        // 10 W over 4.7 µs, all of it at 100 g/kWh.
+        let joules = sample_store.energy(cpu(), &interval).unwrap().get();
+        let grams = sample_store
+            .emissions(cpu(), gpu(), &interval)
+            .unwrap()
+            .get();
+        assert!((joules - 4.7e-5).abs() < 1e-15, "got {joules}");
+        assert!(
+            (grams - joules / 3_600_000.0 * 100.0).abs() < 1e-20,
+            "got {grams}"
+        );
     }
 
     fn grid() -> SourceId {

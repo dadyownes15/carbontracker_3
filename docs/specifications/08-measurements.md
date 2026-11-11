@@ -321,7 +321,7 @@ Over a segment from `from` to `to`:
 - A power source's energy is `∫P dt`, in joules, exact for its sample kind. <!-- AC/MEAS-76 -->
 - Its emissions are `∫P·I dt` against its own intensity source's series,
   exact for every pair of readings: not mean power times mean intensity. <!-- AC/MEAS-77 -->
-- Time is counted to the microsecond. <!-- AC/MEAS-78 -->
+- Time is counted to the nanosecond. <!-- AC/MEAS-78 -->
 - A zero-width segment measures nothing. <!-- AC/MEAS-79 -->
 
 A power source with energy and no intensity source, or an intensity series

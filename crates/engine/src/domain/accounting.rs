@@ -369,10 +369,11 @@ mod segment_tests {
 
     /// AC/MEAS-78
     #[test]
-    fn time_is_counted_to_the_microsecond() {
+    fn time_is_counted_to_the_nanosecond() {
         let store = store(&[(cpu(), &[(0, 20.0), (5000, 20.0)])]);
         let from = at(3300);
-        let segment = Segment { source: cpu(), from, to: from + chrono::TimeDelta::microseconds(1), active: vec![span(1)], claimants: vec![span(1)] };
-        assert!(close(measure(&catalog(), &store, &segment).energy.get(), 2e-5), "20 W for 1 µs");
+        let segment = Segment { source: cpu(), from, to: from + chrono::TimeDelta::nanoseconds(1), active: vec![span(1)], claimants: vec![span(1)] };
+        let joules = measure(&catalog(), &store, &segment).energy.get();
+        assert!((joules - 2e-8).abs() < 1e-15, "20 W for 1 ns, got {joules}");
     }
 }
