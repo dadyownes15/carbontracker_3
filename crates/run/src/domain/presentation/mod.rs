@@ -105,13 +105,24 @@ pub fn clock(duration: Duration) -> String {
     )
 }
 
-/// Formats `value` with three significant figures and no exponent.
+/// The significant figures every printed quantity is shown with.
+const SIGNIFICANT_FIGURES: usize = 3;
+
+/// Formats `value` with [SIGNIFICANT_FIGURES] significant figures and no exponent.
 pub fn significant(value: f64) -> String {
     if value == 0.0 || !value.is_finite() {
         return format!("{value}");
     }
-    let digits = (3 - 1 - value.abs().log10().floor() as i32).max(0) as usize;
-    format!("{value:.digits$}")
+    // Scientific notation rounds to the figures wanted, so its exponent
+    // already includes any carry into the next power of ten.
+    let after_point = SIGNIFICANT_FIGURES - 1;
+    let exponent: i32 = format!("{value:.after_point$e}")
+        .rsplit('e')
+        .next()
+        .and_then(|exponent| exponent.parse().ok())
+        .unwrap_or(0);
+    let decimals = (after_point as i32 - exponent).max(0) as usize;
+    format!("{value:.decimals$}")
 }
 
 /// A display label for a grid location.
@@ -215,6 +226,13 @@ mod tests {
         assert_eq!(significant(21.33), "21.3");
         assert_eq!(significant(1234.4), "1234");
         assert_eq!(significant(0.0000194), "0.0000194");
+    }
+
+    #[test]
+    fn rounding_up_to_the_next_power_of_ten_keeps_three_figures() {
+        assert_eq!(significant(99.99999), "100");
+        assert_eq!(significant(9.996), "10.0");
+        assert_eq!(significant(0.09996), "0.100");
     }
 
     #[test]

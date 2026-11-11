@@ -294,7 +294,7 @@ impl Scenario {
                 at = next_at;
                 // Stamped at read time, as real providers stamp: after its cut
                 // and after every earlier readout, even when cuts coincide. A
-                // microsecond apart, the resolution energy is integrated at.
+                // microsecond apart, the resolution replays are written at.
                 read_at = at.max(read_at) + TimeDelta::microseconds(1);
                 readouts.push((readout, read_at, step.snapshot));
             }

@@ -67,9 +67,9 @@ pub struct Predictor {
     open: HashSet<SpanId>,
     /// Settled epochs, in the order they started.
     settled: BTreeMap<SpanId, Arc<SpanReport>>,
-    /// `predict_after` epochs have settled: the prediction is made once the
-    /// forecast is answered.
-    due: bool,
+    /// The epochs settled when `predict_after` of them had: the prediction
+    /// is made from these once the forecast is answered.
+    due: Option<Measured>,
     prediction: Option<Prediction>,
 }
 
@@ -90,7 +90,7 @@ impl Predictor {
             projected: false,
             open: HashSet::new(),
             settled: BTreeMap::new(),
-            due: false,
+            due: None,
             prediction: None,
         }
     }
@@ -103,9 +103,14 @@ impl Predictor {
     /// The whole run scaled to `planned` epochs, from the epochs settled so
     /// far.
     pub fn predict(&self, planned: usize) -> Prediction {
+        self.predict_from(&self.measured(), planned)
+    }
+
+    /// The whole run scaled to `planned` epochs, from the `measured` ones.
+    fn predict_from(&self, measured: &Measured, planned: usize) -> Prediction {
         let curve = (!self.curve.is_empty()).then_some(self.curve.as_slice());
         prediction::predict(
-            &self.measured(),
+            measured,
             planned as f64,
             curve,
             self.projected,
@@ -159,21 +164,21 @@ impl Projection for Predictor {
                     && self.prediction.is_none()
                     && Some(self.settled.len()) == self.predict_after
                 {
-                    self.due = true;
+                    self.due = Some(self.measured());
                 }
             }
             _ => {}
         }
         // Once a forecast has been fetched; at the outcome at the latest, with
         // what there is, so the run's end never loses the prediction.
-        let (Some(epochs), true) = (self.epochs, self.due) else {
+        let (Some(epochs), Some(measured)) = (self.epochs, self.due) else {
             return Vec::new();
         };
         if !self.fetched && !matches!(item, Item::Outcome(_)) {
             return Vec::new();
         }
-        self.due = false;
-        let prediction = self.predict(epochs);
+        self.due = None;
+        let prediction = self.predict_from(&measured, epochs);
         self.prediction = Some(prediction.clone());
         vec![Box::new(Predicted { epochs, prediction })]
     }
@@ -444,6 +449,43 @@ mod tests {
             "on the next item, once it is answered"
         );
         assert_eq!(predictor.prediction().unwrap().intensity.get(), 250.0);
+    }
+
+    /// AC/RUN-17, AC/PY-15
+
+    #[test]
+    fn a_prediction_that_waited_counts_only_the_epochs_it_was_due_after() {
+        let (ask_forecast, replies) = held();
+        let mut predictor = predictor(10, Some(1), ask_forecast);
+        assert_eq!(
+            project(
+                &mut predictor,
+                &[
+                    started(),
+                    epoch_started(1),
+                    settled(1, 1.0),
+                    epoch_started(2),
+                    settled(2, 3.0)
+                ]
+            ),
+            0,
+            "not before the forecast"
+        );
+
+        *replies.lock().unwrap() = Some(Some(forecast(250.0)));
+        assert_eq!(predictor.project(&epoch_started(3)).len(), 1);
+        let prediction = predictor.prediction().unwrap();
+        assert_eq!(prediction.measured, 1, "the epoch settled when it fell due");
+        assert_eq!(
+            prediction.energy.to_kilowatt_hours().get(),
+            10.0,
+            "1 kWh an epoch, ten epochs"
+        );
+        assert_eq!(
+            predictor.predict(10).measured,
+            2,
+            "asked for, from every epoch settled"
+        );
     }
 
     /// AC/RUN-17

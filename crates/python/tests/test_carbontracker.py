@@ -955,10 +955,23 @@ def two_runs(log_dir):
     return sessions
 
 
+def records(log_dir):
+    """The records under ``log_dir``, oldest run first.
+
+    By the time each run line was written: file times are too coarse to
+    order two runs that end milliseconds apart.
+    """
+    def started(path):
+        at = json.loads(path.read_text().splitlines()[0])["at"].rstrip("Z")
+        seconds, _, fraction = at.partition(".")
+        return seconds, float("0." + (fraction or "0"))
+
+    return sorted(log_dir.glob("*/*.ct"), key=started)
+
+
 def record_lines(log_dir):
     """The newest record's lines."""
-    newest = max(log_dir.glob("*/*.ct"), key=lambda path: path.stat().st_mtime_ns)
-    return newest.read_text().splitlines()
+    return records(log_dir)[-1].read_text().splitlines()
 
 
 # AC/PY-38
@@ -1016,7 +1029,7 @@ def test_report_leaves_out_a_run_without_its_session_line(tmp_path):
     from carbontracker import report
 
     sessions = two_runs(tmp_path)
-    [first, second] = sorted(tmp_path.glob("*/*.ct"), key=lambda path: path.stat().st_mtime_ns)
+    [first, second] = records(tmp_path)
     rewrite(second, lambda line: None if line["kind"] == "session" else line)
     found = report(tmp_path)
     assert [run.file for run in found.incomplete] == [str(second)]
@@ -1030,7 +1043,7 @@ def test_absent_emissions_are_none_never_zero(tmp_path, capsys):
     from carbontracker import parser, report
 
     sessions = two_runs(tmp_path)
-    [first, second] = sorted(tmp_path.glob("*/*.ct"), key=lambda path: path.stat().st_mtime_ns)
+    [first, second] = records(tmp_path)
     rewrite(second, without_emissions)
     found = report(tmp_path)
     assert [run.emissions_g is None for run in found.runs] == [False, True]
