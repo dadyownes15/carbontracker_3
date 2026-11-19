@@ -13,6 +13,10 @@ use crate::ports::{Sink, deliver};
 
 enum WriterMessage {
     Item(Item),
+    /// Answers once every item sent before it has been handed to the sinks.
+    Written {
+        done: oneshot::Sender<()>,
+    },
     /// The last message: finish every sink, then answer.
     Close {
         done: oneshot::Sender<()>,
@@ -41,6 +45,12 @@ impl WriterHandle {
 
     pub fn item(&self, item: Item) {
         let _ = self.sender.send(WriterMessage::Item(item));
+    }
+
+    /// Sends on `done` once every item sent so far has been handed to the
+    /// sinks.
+    pub fn written(&self, done: oneshot::Sender<()>) {
+        let _ = self.sender.send(WriterMessage::Written { done });
     }
 
     /// Finishes every sink, then sends on `done`.
@@ -105,6 +115,9 @@ fn run_writer(mut actor: WriterActor) {
     while let Ok(message) = actor.receiver.recv() {
         match message {
             WriterMessage::Item(item) => actor.hand(&item),
+            WriterMessage::Written { done } => {
+                let _ = done.send(());
+            }
             WriterMessage::Close { done } => {
                 actor.finish();
                 let _ = done.send(());

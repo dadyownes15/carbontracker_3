@@ -21,6 +21,10 @@ serves the one there is, because Electricity Maps has no key (or declined it)
 and the country table needs a country it lists. An asked-for world average
 (`global`, profiler mode) or a stated intensity warns nothing. <!-- AC/RUN-23 -->
 
+**`start` returns once `Started` and its warnings have reached every sink.**
+A frontend's own work, such as the CLI's command or a Python script, begins
+only after what is measured has been printed. <!-- AC/RUN-24 -->
+
 ## The item stream
 
 Everything a run does, from the first probe step to the session's end, reaches

@@ -581,6 +581,34 @@ impl Sink for Slow {
     }
 }
 
+/// A sink that takes a while to write the start.
+struct SlowStart(Recorder);
+
+impl Sink for SlowStart {
+    fn start(&mut self, started: &Started) -> io::Result<()> {
+        std::thread::sleep(Duration::from_millis(200));
+        self.0.start(started)
+    }
+    fn event(&mut self, event: &TrackerEvent) -> io::Result<()> {
+        self.0.event(event)
+    }
+    fn gap(&mut self) -> io::Result<()> {
+        self.0.gap()
+    }
+    fn name(&self) -> &str {
+        "slow start"
+    }
+}
+
+/// AC/RUN-24
+#[test]
+fn start_returns_once_every_sink_has_the_start() {
+    let recorder = Recorder::default();
+    let run = start(config(vec![Box::new(SlowStart(recorder.clone()))]), |_, _| ()).unwrap();
+    assert!(recorder.seen().contains(&"started".to_owned()), "{:?}", recorder.seen());
+    run.finish(Outcome::Exited { code: 0 }).unwrap();
+}
+
 /// AC/RUN-11
 #[test]
 fn a_sink_that_blocks_loses_no_events() {
