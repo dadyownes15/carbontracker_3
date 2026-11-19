@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use carbontracker::{
-    ConfigError, Fidelity, GridLocation, SessionReport, SourceDescription, SourceSelection, SpanId, Subscription,
+    ConfigError, GridLocation, SessionReport, SourceSelection, SpanId, Subscription,
     TrackerConfig, Work, TrackerError, TrackerHandle, TrackerQuery, WeakTrackerHandle,
 };
 use carbontracker_providers::{
@@ -135,13 +135,8 @@ fn begin(
         },
         epochs: None,
     };
-    let assumed = resolution
-        .sources()
-        .any(|(_, source)| matches!(source, SourceDescription::Intensity { fidelity: Fidelity::Assumed, .. }));
-    let warnings = (assumed && !global)
-        .then(|| presentation::assumed_grid(resolution.location(), keyed))
-        .into_iter()
-        .collect();
+    let described = resolution.sources().map(|(id, source)| (id, source.clone())).collect();
+    let warnings = presentation::unasked(&described, global, resolution.location(), keyed);
     let probe = encode::probe(&resolution);
     let served_by = resolution
         .sources()

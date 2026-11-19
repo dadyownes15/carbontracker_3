@@ -950,3 +950,26 @@ fn a_world_average_nobody_asked_for_says_why() {
     let asked = console_for(GridConfig { location: Some(GridLocation::Global), ..GridConfig::default() });
     assert!(!asked.contains("WARNING - the world-average grid"), "{asked}");
 }
+
+/// AC/OUT-22, AC/OUT-32
+#[test]
+fn a_modelled_source_nobody_asked_for_is_a_warning_at_start() {
+    let out = Shared::default();
+    let mut country = config(standard_sinks(console(&out, Verbosity::Quiet), None).unwrap());
+    country.probe.grid = GridConfig {
+        location: Some(GridLocation::Country { country_code: "DK".to_owned() }),
+        ..GridConfig::default()
+    };
+    country.probe.pinned.intensity = None;
+    let run = start(country, |_, _| ()).unwrap();
+    let at_start = out.text();
+    run.finish(Outcome::Exited { code: 0 }).unwrap();
+    let [warning] = at_start.lines().collect::<Vec<_>>()[..] else { panic!("{at_start}") };
+    assert!(warning.starts_with("CarbonTracker: WARNING - "), "{warning}");
+    assert!(warning.contains("DK") && warning.contains("modelled"), "{warning}");
+
+    // A stated draw and intensity on the world-average grid, as asked.
+    let asked = Shared::default();
+    one_span(config(standard_sinks(console(&asked, Verbosity::Quiet), None).unwrap()));
+    assert_eq!(asked.text(), "");
+}

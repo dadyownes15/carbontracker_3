@@ -76,7 +76,7 @@ Each of these is a warning, at every verbosity:
 | Warning | Spec | |
 |---|---|---|
 | Each of the session report's warnings: thin coverage, no intensity, held intensity, an estimated total, no selected sources | [09](09-profiling.md) | <!-- AC/OUT-21 unbuilt -->
-| A source that is not measured: modelled or assumed, and not asked for | [03](03-providers.md), [04](04-run.md) | <!-- AC/OUT-22 unbuilt -->
+| A source that is not measured: modelled or assumed, and not asked for | [03](03-providers.md), [04](04-run.md) | <!-- AC/OUT-22 -->
 | Events were lost: the record is incomplete | [04](04-run.md) | <!-- AC/OUT-23 unbuilt -->
 | A sink failed and stopped | [04](04-run.md) | <!-- AC/OUT-24 unbuilt -->
 | A command was refused: a mark, start or stop the engine did not accept | [02](02-engine.md) | <!-- AC/OUT-25 unbuilt -->
@@ -84,7 +84,7 @@ Each of these is a warning, at every verbosity:
 **Only a measured or stated source warns nothing.** A source whose fidelity
 is modelled or assumed is a warning when the session starts, naming the
 source and its fidelity. A figure the user asked for (a stated power or
-intensity, `global`, profiler mode) is not warned about. <!-- AC/OUT-32 unbuilt -->
+intensity, `global`, profiler mode) is not warned about. <!-- AC/OUT-32 -->
 
 > A session started at Quiet with a modelled CPU and the world-average grid,
 > not asked for. Two warnings print before the first span: the CPU is

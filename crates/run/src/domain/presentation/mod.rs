@@ -186,10 +186,6 @@ pub fn caveat(description: &SourceDescription) -> Option<String> {
         SourceDescription::Power { device_name, .. } => {
             format!("{device_name} is {fidelity}, not measured: treat its energy as an estimate")
         }
-        SourceDescription::Intensity {
-            location: GridLocation::Global,
-            ..
-        } => "no location was found, so emissions use the world-average grid".to_owned(),
         SourceDescription::Intensity { location, .. } => {
             format!(
                 "the grid intensity for {} is {fidelity}, not live",
@@ -257,10 +253,15 @@ mod tests {
                 .unwrap()
                 .contains("Intel Xeon")
         );
-        let world = SourceDescription::Intensity {
-            location: GridLocation::Global,
-            fidelity: Fidelity::Assumed,
+        let country = SourceDescription::Intensity {
+            location: GridLocation::Country {
+                country_code: "DK".to_owned(),
+            },
+            fidelity: Fidelity::Modelled,
         };
-        assert!(caveat(&world).unwrap().contains("world-average"));
+        assert_eq!(
+            caveat(&country).unwrap(),
+            "the grid intensity for DK is modelled, not live"
+        );
     }
 }

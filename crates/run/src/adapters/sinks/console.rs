@@ -135,9 +135,6 @@ impl ConsoleSink {
                 }
             }
         }
-        for note in presentation::notes(report) {
-            self.say(&note)?;
-        }
         if matches!(self.layout, Layout::Legacy { .. }) {
             self.say(presentation::FINISHED)?;
         }
