@@ -258,10 +258,11 @@ def test_siblings_with_one_name_are_numbered_and_unique_names_are_bare():  # AC/
     assert tree_labels(["tokenize", "forward"]) == ["tokenize", "forward"]
 
 
-def test_verbose_zero_prints_nothing(capsys):  # AC/PRF-34
+def test_verbose_zero_prints_nothing(capsys):  # AC/PRF-34, AC/OUT-32
     with profile() as tracker:
         with tracker.span("forward"):
             pass
+    # Profiler mode asks for the world-average grid, so it is not warned about.
     assert capsys.readouterr().out == ""
 
 
