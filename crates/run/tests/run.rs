@@ -1,7 +1,9 @@
 //! A run through its public seam: [start], spans, [RunHandle::finish], over
 //! pinned sources from the default registry: no hardware, no network.
 
-use std::io::{self, Write};
+mod common;
+
+use std::io;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -12,26 +14,7 @@ use carbontracker_run::{
     LatestForecast, Console, ConsoleSink, Folder, Layout, Outcome, Predictor, RunConfig, Sink, Started, Verbosity,
     Work, standard_sinks, start,
 };
-
-/// A writer the test reads back.
-#[derive(Clone, Default)]
-struct Shared(Arc<Mutex<Vec<u8>>>);
-
-impl Write for Shared {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-impl Shared {
-    fn text(&self) -> String {
-        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
-    }
-}
+use common::Shared;
 
 fn probe() -> ProbeConfig {
     ProbeConfig {

@@ -1,9 +1,10 @@
 //! The [ConsoleSink] through its public seam: scripted items in, the lines it
 //! prints out, at each verbosity.
 
+mod common;
+
 use std::collections::HashMap;
-use std::io::{self, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use carbontracker::{
@@ -12,26 +13,7 @@ use carbontracker::{
     TrackerEvent, Work,
 };
 use carbontracker_run::{ConsoleSink, Item, Layout, Started, Verbosity, deliver, record};
-
-/// A writer the test reads back.
-#[derive(Clone, Default)]
-struct Shared(Arc<Mutex<Vec<u8>>>);
-
-impl Write for Shared {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-impl Shared {
-    fn text(&self) -> String {
-        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
-    }
-}
+use common::Shared;
 
 const VERBOSITIES: [Verbosity; 3] = [Verbosity::Quiet, Verbosity::Normal, Verbosity::Everything];
 
