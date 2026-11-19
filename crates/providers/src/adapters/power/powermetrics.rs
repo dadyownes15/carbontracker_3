@@ -6,7 +6,7 @@ use chrono::Utc;
 
 use crate::adapters::system::cpu::device_name;
 use crate::domain::window::Window;
-use crate::ports::Outcome;
+use crate::ports::{Outcome, Probed};
 use carbontracker::{Cooldown, Provider, ProviderError, ProviderId, ProviderResponse, Reading, SourceId, Timestamp};
 use carbontracker::{Fidelity, PowerDomain, PowerScope, SourceDescription};
 use carbontracker::SampleKind;
@@ -75,16 +75,16 @@ fn run_window(program: &str, args: &[&str], timeout: Duration) -> Result<String,
     String::from_utf8(bytes).map_err(|_| ProviderError::Invalid("powermetrics wrote non-UTF-8".to_owned()))
 }
 
-pub(crate) async fn probe_powermetrics(id: ProviderId) -> Option<Outcome> {
+pub(crate) async fn probe_powermetrics(id: ProviderId) -> Probed {
     // A real sample checks sudo and reveals which domains are reported.
-    let report = tokio::task::spawn_blocking(run_powermetrics).await.ok()?;
+    let report = tokio::task::spawn_blocking(run_powermetrics).await.map_err(|error| format!("powermetrics: {error}"))?;
     outcome(id, report)
 }
 
 /// The sources a probe's `report` shows, each domain it has a figure for;
-/// none if the window could not be run.
-fn outcome(id: ProviderId, report: Result<String, ProviderError>) -> Option<Outcome> {
-    let sample = PowermetricsSample::parse(&report.ok()?);
+/// declined if the window could not be run.
+fn outcome(id: ProviderId, report: Result<String, ProviderError>) -> Probed {
+    let sample = PowermetricsSample::parse(&report.map_err(|error| error.to_string())?);
 
     let device_name = device_name();
     let mut descriptions = Vec::new();
@@ -106,9 +106,11 @@ fn outcome(id: ProviderId, report: Result<String, ProviderError>) -> Option<Outc
         domains.push((domain, sid));
     }
 
-    if descriptions.is_empty() { return None; }
+    if descriptions.is_empty() {
+        return Err("powermetrics reported no CPU, GPU or ANE figure".to_owned());
+    }
 
-    Some(Outcome { descriptions, provider: Box::new(Powermetrics { domains }) })
+    Ok(Outcome { descriptions, provider: Box::new(Powermetrics { domains }) })
 }
 
 #[derive(Debug, Default)]
@@ -240,12 +242,13 @@ mod tests {
         assert_eq!(WINDOW, Duration::from_secs(1));
     }
 
-    /// AC/PROV-43 AC/ENG-60
+    /// AC/PROV-43 AC/PROV-53 AC/ENG-60
     #[test]
     fn a_refused_sudo_declines_the_probe_and_denies_a_read() {
         let refused = run_window("sh", &["-c", "exit 1"], CHILD_TIMEOUT);
         assert!(matches!(refused, Err(ProviderError::Denied(_))), "{refused:?}");
-        assert!(outcome(ProviderId(4), refused).is_none());
+        let reason = outcome(ProviderId(4), refused).err().expect("declines");
+        assert!(reason.contains("cached credential"), "{reason:?}");
     }
 
     /// AC/ENG-38
@@ -272,6 +275,7 @@ mod tests {
                 );
             }
         }
-        assert!(outcome(ProviderId(4), Ok("no figures".to_owned())).is_none(), "nothing to serve declines");
+        let reason = outcome(ProviderId(4), Ok("no figures".to_owned())).err().expect("nothing to serve declines");
+        assert!(reason.contains("no CPU, GPU or ANE figure"), "{reason:?}");
     }
 }

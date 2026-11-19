@@ -9,7 +9,7 @@ use chrono::Utc;
 
 use crate::adapters::system::cpu::device_name;
 use crate::domain::counter::Accumulator;
-use crate::ports::Outcome;
+use crate::ports::{Outcome, Probed};
 use carbontracker::{Cooldown, Provider, ProviderError, ProviderId, ProviderResponse, Reading, SourceId};
 use carbontracker::{Fidelity, PowerDomain, PowerScope, SampleKind, SourceDescription};
 
@@ -29,8 +29,9 @@ struct RaplZone {
     max_energy_uj: Option<u64>,
 }
 
-fn discover_rapl_zones(root: &std::path::Path) -> Vec<RaplZone> {
-    let Ok(dir) = std::fs::read_dir(root) else { return Vec::new() };
+/// The readable zones under `root`, or why there are none.
+fn discover_rapl_zones(root: &std::path::Path) -> Probed<Vec<RaplZone>> {
+    let dir = std::fs::read_dir(root).map_err(|error| format!("{}: {error}", root.display()))?;
 
     let mut entries: Vec<std::path::PathBuf> = dir
         .flatten()
@@ -44,6 +45,8 @@ fn discover_rapl_zones(root: &std::path::Path) -> Vec<RaplZone> {
     entries.sort();
 
     let mut zones = Vec::new();
+    // The first counter this process may not read, the usual reason none serves.
+    let mut unreadable = None;
     for zone_dir in &entries {
         let Ok(name) = std::fs::read_to_string(zone_dir.join("name")) else { continue };
         let name = name.trim();
@@ -59,7 +62,10 @@ fn discover_rapl_zones(root: &std::path::Path) -> Vec<RaplZone> {
         };
 
         let energy_path = zone_dir.join("energy_uj");
-        if std::fs::read_to_string(&energy_path).is_err() { continue; }
+        if let Err(error) = std::fs::read_to_string(&energy_path) {
+            unreadable.get_or_insert_with(|| format!("{}: {error}", energy_path.display()));
+            continue;
+        }
 
         let max_energy_uj = std::fs::read_to_string(zone_dir.join("max_energy_range_uj"))
             .ok()
@@ -76,17 +82,19 @@ fn discover_rapl_zones(root: &std::path::Path) -> Vec<RaplZone> {
             max_energy_uj,
         });
     }
-    zones
+    if zones.is_empty() {
+        return Err(unreadable.unwrap_or_else(|| format!("no package or DRAM zone under {}", root.display())));
+    }
+    Ok(zones)
 }
 
-pub(crate) fn probe_rapl(id: ProviderId) -> Option<Outcome> {
+pub(crate) fn probe_rapl(id: ProviderId) -> Probed {
     probe_rapl_at(id, std::path::Path::new(POWERCAP_ROOT))
 }
 
 /// [probe_rapl] over the powercap tree at `root`.
-fn probe_rapl_at(id: ProviderId, root: &std::path::Path) -> Option<Outcome> {
-    let zones = discover_rapl_zones(root);
-    if zones.is_empty() { return None; }
+fn probe_rapl_at(id: ProviderId, root: &std::path::Path) -> Probed {
+    let zones = discover_rapl_zones(root)?;
 
     let device_name = device_name();
 
@@ -122,7 +130,7 @@ fn probe_rapl_at(id: ProviderId, root: &std::path::Path) -> Option<Outcome> {
         counters.push(Counter::new(sid, zone.energy_path, zone.max_energy_uj));
     }
 
-    Some(Outcome { descriptions, provider: Box::new(Rapl { counters }) })
+    Ok(Outcome { descriptions, provider: Box::new(Rapl { counters }) })
 }
 
 /// One zone's `energy_uj`, in µJ, wrapping at `max_energy_range_uj`. The
@@ -309,8 +317,21 @@ mod tests {
         if !lock(&counter) {
             return; // Root reads every file.
         }
-        assert!(probe_rapl_at(ProviderId(1), root.path()).is_none());
+        let reason = probe_rapl_at(ProviderId(1), root.path()).err().expect("declines");
+        assert!(reason.contains("energy_uj") && reason.contains("denied"), "{reason:?}");
         assert!(matches!(provider.read().unwrap().get(source()), Some(Reading::Failed(ProviderError::Denied(_)))));
+    }
+
+    /// AC/PROV-53
+    #[test]
+    fn a_decline_says_what_was_missing() {
+        let missing = tempfile::tempdir().unwrap().path().join("powercap");
+        let reason = probe_rapl_at(ProviderId(1), &missing).err().expect("declines");
+        assert!(reason.contains("powercap"), "{reason:?}");
+
+        let only_psys = powercap(&[("intel-rapl:0", "psys")]);
+        let reason = probe_rapl_at(ProviderId(1), only_psys.path()).err().expect("declines");
+        assert!(reason.contains("no package or DRAM zone"), "{reason:?}");
     }
 
     /// AC/PROV-35

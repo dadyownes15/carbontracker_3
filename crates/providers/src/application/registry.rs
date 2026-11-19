@@ -177,9 +177,12 @@ async fn probe_location(chain: &mut Chain<'_>, config: &ProbeConfig, net: &Net) 
     }
 
     chain.probing(IP_GEOLOCATION);
-    let Some(estimate) = estimate_by_ip(&net.client, &net.endpoints.ip_geolocation).await else {
-        chain.record(IP_GEOLOCATION, Verdict::Declined);
-        return None;
+    let estimate = match estimate_by_ip(&net.client, &net.endpoints.ip_geolocation).await {
+        Ok(estimate) => estimate,
+        Err(reason) => {
+            chain.record(IP_GEOLOCATION, Verdict::Declined(reason));
+            return None;
+        }
     };
     chain.record(IP_GEOLOCATION, Verdict::Serving(vec![estimate.to_string()]));
     Some(Location::Estimated(estimate))
@@ -189,7 +192,7 @@ async fn probe_power(chain: &mut Chain<'_>, config: &ProbeConfig) {
     // Static power replaces all probing.
     if let Some(watts) = config.pinned.power {
         chain.probing("static");
-        chain.take(STATIC_POWER, "static", Some(constant_power(STATIC_POWER, watts.get())));
+        chain.take(STATIC_POWER, "static", Ok(constant_power(STATIC_POWER, watts.get())));
         return;
     }
 
@@ -201,7 +204,7 @@ async fn probe_power(chain: &mut Chain<'_>, config: &ProbeConfig) {
     for (id, name, domain, watts) in pinned {
         let Some(watts) = watts else { continue };
         if chain.worth_probing(name, &[domain]) {
-            chain.take(id, name, Some(constant_device(id, "static", domain, watts.get(), Fidelity::Stated)));
+            chain.take(id, name, Ok(constant_device(id, "static", domain, watts.get(), Fidelity::Stated)));
             chain.pinned.push(domain);
         }
     }
@@ -242,7 +245,7 @@ async fn probe_power(chain: &mut Chain<'_>, config: &ProbeConfig) {
     }
 
     if chain.worth_probing("generic-cpu", &[PowerDomain::Cpu]) {
-        chain.take(GENERIC_CPU, "generic-cpu", Some(probe_generic_cpu(GENERIC_CPU)));
+        chain.take(GENERIC_CPU, "generic-cpu", Ok(probe_generic_cpu(GENERIC_CPU)));
     }
 }
 
@@ -257,13 +260,13 @@ async fn probe_intensity(
         let stated = config.grid.location.clone().unwrap_or(GridLocation::Global);
         chain.probing("static");
         let pinned = constant_intensity(STATIC_INTENSITY, fixed, stated.clone(), Fidelity::Stated);
-        chain.take(STATIC_INTENSITY, "static", Some(pinned));
+        chain.take(STATIC_INTENSITY, "static", Ok(pinned));
         return Grid { g_per_kwh: fixed, location: stated };
     }
 
     chain.probing("electricity-maps");
     let live = probe_electricity_maps(ELECTRICITY_MAPS, net.electricity_maps.clone(), location).await;
-    let mut resolved = resolved_grid(live.as_ref());
+    let mut resolved = resolved_grid(live.as_ref().ok());
     chain.take(ELECTRICITY_MAPS, "electricity-maps", live.map(|(outcome, _)| outcome));
 
     // Explicit checks: a country's or `Global` coverage never collides with a zone's.
@@ -272,7 +275,7 @@ async fn probe_intensity(
     } else {
         chain.probing("country-average");
         let table = probe_country_average(COUNTRY_AVERAGE, location);
-        resolved = resolved_grid(table.as_ref());
+        resolved = resolved_grid(table.as_ref().ok());
         chain.take(COUNTRY_AVERAGE, "country-average", table.map(|(outcome, _)| outcome));
     }
 
@@ -286,7 +289,7 @@ async fn probe_intensity(
             GridLocation::Global,
             Fidelity::Assumed,
         );
-        chain.take(GLOBAL_AVERAGE, "global-average", Some(floor));
+        chain.take(GLOBAL_AVERAGE, "global-average", Ok(floor));
     }
 
     resolved.unwrap_or(Grid { g_per_kwh: WORLD_AVERAGE_G_CO2_PER_KWH, location: GridLocation::Global })
@@ -317,21 +320,30 @@ async fn probe_forecast(
     let live = probe_electricity_maps_forecast(net.electricity_maps.clone(), location, horizon)
         .await
         // Never told about one grid and billed against another.
-        .filter(|probed| GridLocation::Zone { zone_id: probed.zone.clone() } == grid.location);
-    if let Some(probed) = live {
-        let forecaster = Forecaster::new(
-            grid.location.clone(),
-            Fidelity::Measured,
-            probed.horizon,
-            "electricity-maps-forecast",
-            probed.fetch,
-        )
-        .primed(probed.curve);
-        let forecaster = serve(chain, forecaster);
-        chain.record("projection", Verdict::Covered);
-        return forecaster;
+        .and_then(|probed| {
+            let forecast_for = GridLocation::Zone { zone_id: probed.zone.clone() };
+            if forecast_for == grid.location {
+                Ok(probed)
+            } else {
+                Err(format!("the forecast is for {forecast_for}, but the run is billed against {}", grid.location))
+            }
+        });
+    match live {
+        Ok(probed) => {
+            let forecaster = Forecaster::new(
+                grid.location.clone(),
+                Fidelity::Measured,
+                probed.horizon,
+                "electricity-maps-forecast",
+                probed.fetch,
+            )
+            .primed(probed.curve);
+            let forecaster = serve(chain, forecaster);
+            chain.record("projection", Verdict::Covered);
+            return forecaster;
+        }
+        Err(reason) => chain.record("electricity-maps-forecast", Verdict::Declined(reason)),
     }
-    chain.record("electricity-maps-forecast", Verdict::Declined);
 
     chain.probing("projection");
     // The global average held flat is a guess, not a projection of anything measured.

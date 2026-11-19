@@ -1,7 +1,12 @@
 //! [Outcome]: what one successful probe yields, the contract between the
-//! chains and every candidate.
+//! chains and every candidate. A probe that cannot serve gives its reason
+//! instead.
 
 use carbontracker::{Provider, SourceDescription, SourceId};
+
+/// What a probe yields: an [Outcome], or the reason it declined, shown to
+/// the user.
+pub(crate) type Probed<T = Outcome> = Result<T, String>;
 
 /// What one successful probe yields: the sources it can serve, and the
 /// provider that reads them.

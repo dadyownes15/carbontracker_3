@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use crate::application::forecaster::Fetch;
 use crate::domain::config::ApiKey;
 use crate::domain::location::Location;
-use crate::ports::Outcome;
+use crate::ports::{Outcome, Probed};
 use carbontracker::{Cooldown, Provider, ProviderError, ProviderId, ProviderResponse, Reading, Sample, SourceId};
 use carbontracker::{Fidelity, GridLocation, SourceDescription, Timestamp};
 
@@ -47,6 +47,26 @@ impl Query {
         params.push(("disableCallerLookup", "true".to_owned()));
         params.push(("emissionFactorType", "lifecycle".to_owned()));
         params
+    }
+}
+
+impl std::fmt::Display for Query {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Zone(zone) => write!(formatter, "zone {zone}"),
+            Self::Coordinates { latitude, longitude } => write!(formatter, "({latitude:.2}, {longitude:.2})"),
+        }
+    }
+}
+
+const NO_KEY: &str = "no Electricity Maps key";
+
+/// Why no query answered: each query's refusal, or that there was none to ask.
+fn none_answered(refusals: Vec<String>) -> String {
+    if refusals.is_empty() {
+        "no location Electricity Maps can be asked about".to_owned()
+    } else {
+        refusals.join("; ")
     }
 }
 
@@ -200,18 +220,22 @@ pub(crate) async fn probe_electricity_maps(
     id: ProviderId,
     api: Option<Api>,
     location: Option<&Location>,
-) -> Option<(Outcome, f64)> {
-    let api = api?;
+) -> Probed<(Outcome, f64)> {
+    let api = api.ok_or(NO_KEY)?;
 
     // Confirms the key and the location work; the first query it can read wins.
     let mut answer = None;
+    let mut refusals = Vec::new();
     for query in queries(location) {
-        if let Ok(answered) = api.latest(&query).await {
-            answer = Some(answered);
-            break;
+        match api.latest(&query).await {
+            Ok(answered) => {
+                answer = Some(answered);
+                break;
+            }
+            Err(error) => refusals.push(format!("{query}: {error}")),
         }
     }
-    let (zone, current) = answer?;
+    let (zone, current) = answer.ok_or_else(|| none_answered(refusals))?;
     let g_per_kwh = current.value();
 
     let sid = SourceId::new(id, 0);
@@ -226,7 +250,7 @@ pub(crate) async fn probe_electricity_maps(
     };
     let description =
         SourceDescription::Intensity { location: GridLocation::Zone { zone_id: zone }, fidelity: Fidelity::Measured };
-    Some((Outcome::single(sid, description, provider), g_per_kwh))
+    Ok((Outcome::single(sid, description, provider), g_per_kwh))
 }
 
 /// The latest intensity of one zone.
@@ -278,28 +302,36 @@ pub(crate) async fn probe_electricity_maps_forecast(
     api: Option<Api>,
     location: Option<&Location>,
     horizon: Duration,
-) -> Option<ForecastProbe> {
-    let api = api?;
+) -> Probed<ForecastProbe> {
+    let api = api.ok_or(NO_KEY)?;
     // The endpoint reaches 72 hours at most.
     let horizon = horizon.min(Duration::from_secs(72 * 60 * 60));
 
     let mut answer = None;
+    let mut refusals = Vec::new();
     for query in queries(location) {
-        if let Ok(answered) = api.forecast(&query, horizon).await {
-            answer = Some(answered);
-            break;
+        match api.forecast(&query, horizon).await {
+            Ok(answered) => {
+                answer = Some(answered);
+                break;
+            }
+            Err(error) => refusals.push(format!("{query}: {error}")),
         }
     }
-    let (zone, curve) = answer?;
+    let (zone, curve) = answer.ok_or_else(|| none_answered(refusals))?;
     let now = Utc::now();
-    let reach = (*curve.last()?.observed_at() - now).to_std().ok().filter(|reach| !reach.is_zero())?;
+    let reach = curve
+        .last()
+        .and_then(|last| (*last.observed_at() - now).to_std().ok())
+        .filter(|reach| !reach.is_zero())
+        .ok_or_else(|| format!("the forecast for {zone} has no point ahead"))?;
 
     let (base_url, key, query) = (api.base_url.clone(), api.key.clone(), Query::Zone(zone.clone()));
     let fetch: Fetch = Arc::new(move || {
         let (_, curve) = fetch_forecast(&base_url, &key, &query, horizon).ok()?;
         Some(cut_to_horizon(&curve, Utc::now(), horizon))
     });
-    Some(ForecastProbe { zone, curve: cut_to_horizon(&curve, now, horizon), horizon: horizon.min(reach), fetch })
+    Ok(ForecastProbe { zone, curve: cut_to_horizon(&curve, now, horizon), horizon: horizon.min(reach), fetch })
 }
 
 /// Fetch the forecast for `query`, blocking.

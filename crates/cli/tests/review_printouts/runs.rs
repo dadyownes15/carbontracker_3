@@ -565,8 +565,8 @@ fn stated() -> Host {
 
 fn mac_probe() -> Vec<(&'static str, Verdict)> {
     vec![
-        ("nvml-energy", Verdict::Declined),
-        ("nvml-power", Verdict::Declined),
+        ("nvml-energy", Verdict::Declined("NVML: a libloading error occurred".to_owned())),
+        ("nvml-power", Verdict::Declined("NVML: a libloading error occurred".to_owned())),
         ("macmon", Verdict::Serving(vec!["Apple M2 Pro (Cpu/DeviceTotal, measured)".to_owned()])),
         ("powermetrics", Verdict::Covered),
         ("generic-cpu", Verdict::Covered),
@@ -574,7 +574,7 @@ fn mac_probe() -> Vec<(&'static str, Verdict)> {
         ("electricity-maps", Verdict::Serving(vec!["intensity (DK, measured)".to_owned()])),
         ("country-average", Verdict::Covered),
         ("global-average", Verdict::Covered),
-        ("electricity-maps-forecast", Verdict::Declined),
+        ("electricity-maps-forecast", Verdict::Declined("zone DK-DK2: access denied: Electricity Maps refused the key (403 Forbidden)".to_owned())),
         ("projection", Verdict::Serving(vec!["intensity forecast (DK, modelled)".to_owned()])),
     ]
 }
@@ -589,16 +589,16 @@ fn mac_probe_published() -> Vec<(&'static str, Verdict)> {
 
 fn nothing_found_probe() -> Vec<(&'static str, Verdict)> {
     vec![
-        ("nvml-energy", Verdict::Declined),
-        ("nvml-power", Verdict::Declined),
-        ("macmon", Verdict::Declined),
-        ("powermetrics", Verdict::Declined),
+        ("nvml-energy", Verdict::Declined("NVML: a libloading error occurred".to_owned())),
+        ("nvml-power", Verdict::Declined("NVML: a libloading error occurred".to_owned())),
+        ("macmon", Verdict::Declined("macmon: IOReport has no power channel".to_owned())),
+        ("powermetrics", Verdict::Declined("access denied: sudo powermetrics needs a cached credential".to_owned())),
         ("generic-cpu", Verdict::Serving(vec!["Apple M2 Pro (Cpu/DeviceTotal, modelled)".to_owned()])),
-        ("ip-geolocation", Verdict::Declined),
-        ("electricity-maps", Verdict::Declined),
-        ("country-average", Verdict::Declined),
+        ("ip-geolocation", Verdict::Declined("ipinfo.io timed out".to_owned())),
+        ("electricity-maps", Verdict::Declined("no Electricity Maps key".to_owned())),
+        ("country-average", Verdict::Declined("no location".to_owned())),
         ("global-average", Verdict::Serving(vec!["intensity (world average, modelled)".to_owned()])),
-        ("electricity-maps-forecast", Verdict::Declined),
+        ("electricity-maps-forecast", Verdict::Declined("no Electricity Maps key".to_owned())),
         ("projection", Verdict::NotWanted),
     ]
 }
@@ -613,14 +613,14 @@ fn stated_probe() -> Vec<(&'static str, Verdict)> {
 fn gpu_probe() -> Vec<(&'static str, Verdict)> {
     vec![
         ("nvml-energy", Verdict::Serving(vec!["NVIDIA A100-SXM4-40GB (Gpu/DeviceTotal, measured)".to_owned()])),
-        ("nvml-power", Verdict::Declined),
+        ("nvml-power", Verdict::Declined("NVML: a libloading error occurred".to_owned())),
         ("rapl", Verdict::Serving(vec!["Intel Xeon Gold 6338 (Cpu/DeviceTotal, measured)".to_owned()])),
         ("generic-cpu", Verdict::Covered),
         ("ip-geolocation", Verdict::Serving(vec!["DK".to_owned()])),
-        ("electricity-maps", Verdict::Declined),
+        ("electricity-maps", Verdict::Declined("no Electricity Maps key".to_owned())),
         ("country-average", Verdict::Serving(vec!["intensity (DK, modelled)".to_owned()])),
         ("global-average", Verdict::Covered),
-        ("electricity-maps-forecast", Verdict::Declined),
+        ("electricity-maps-forecast", Verdict::Declined("no Electricity Maps key".to_owned())),
         ("projection", Verdict::NotWanted),
     ]
 }

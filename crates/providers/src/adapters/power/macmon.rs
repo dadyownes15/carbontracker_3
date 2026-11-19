@@ -6,7 +6,7 @@ use chrono::Utc;
 
 use crate::adapters::system::cpu::device_name;
 use crate::domain::window::Window;
-use crate::ports::Outcome;
+use crate::ports::{Outcome, Probed};
 use carbontracker::{Cooldown, Provider, ProviderError, ProviderId, ProviderResponse, SourceId, Timestamp};
 use carbontracker::{Fidelity, PowerDomain, PowerScope, SourceDescription};
 use carbontracker::{Sample, SampleKind};
@@ -24,15 +24,15 @@ pub(crate) const MACMON_DOMAINS: [PowerDomain; 5] = [
     PowerDomain::System,
 ];
 
-pub(crate) async fn probe_macmon(id: ProviderId) -> Option<Outcome> {
+pub(crate) async fn probe_macmon(id: ProviderId) -> Probed {
     // Intel Macs have no IOReport power channel and fail here.
     let (ready, readings) = spawn_macmon_thread(MACMON_SAMPLE_INTERVAL_MS);
-    if !ready.await.unwrap_or(false) { return None; }
+    ready.await.map_err(|_| "macmon: the sampler thread stopped".to_owned())??;
 
     let descriptions = describe(id, &device_name());
     let domains = MACMON_DOMAINS.into_iter().zip(descriptions.iter().map(|(sid, _)| *sid)).collect();
     // Self-paced: a background thread samples, and a read only drains it.
-    Some(Outcome { descriptions, provider: Box::new(Macmon { readings, domains }) })
+    Ok(Outcome { descriptions, provider: Box::new(Macmon { readings, domains }) })
 }
 
 /// A source for each of [MACMON_DOMAINS] on `device_name`, in that order.
@@ -92,15 +92,18 @@ type MacmonReadings = std::sync::mpsc::Receiver<Result<MacmonWindow, ProviderErr
 /// Runs the sampler on its own OS thread: `get_metrics` blocks and `Sampler` is
 /// `!Send`. The thread exits when the receiver is dropped.
 fn spawn_macmon_thread(interval_ms: u32)
-    -> (tokio::sync::oneshot::Receiver<bool>, MacmonReadings)
+    -> (tokio::sync::oneshot::Receiver<Result<(), String>>, MacmonReadings)
 {
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let (tx, rx) = std::sync::mpsc::channel();
 
     std::thread::spawn(move || {
-        let Ok(mut sampler) = ::macmon::Sampler::new() else {
-            let _ = ready_tx.send(false);
-            return;
+        let mut sampler = match ::macmon::Sampler::new() {
+            Ok(sampler) => sampler,
+            Err(error) => {
+                let _ = ready_tx.send(Err(format!("macmon: {error}")));
+                return;
+            }
         };
 
         // Signal ready only after the first reading, so spans have no unmeasured head.
@@ -114,7 +117,7 @@ fn spawn_macmon_thread(interval_ms: u32)
                 .map_err(|error| ProviderError::Unavailable(format!("IOReport: {error}")));
 
             if let Some(ready_tx) = ready_tx.take() {
-                let _ = ready_tx.send(reading.is_ok());
+                let _ = ready_tx.send(reading.as_ref().map(|_| ()).map_err(|error| format!("macmon: {error}")));
             }
 
             if tx.send(reading).is_err() { break; }

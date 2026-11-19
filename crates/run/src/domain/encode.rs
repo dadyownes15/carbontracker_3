@@ -346,7 +346,7 @@ pub fn probe(resolution: &Resolution) -> record::Probe {
         .map(|candidate| {
             let (verdict, series) = match &candidate.verdict {
                 Verdict::Serving(series) => ("serving", series.clone()),
-                Verdict::Declined => ("declined", Vec::new()),
+                Verdict::Declined(_) => ("declined", Vec::new()),
                 Verdict::Covered => ("covered", Vec::new()),
                 Verdict::NotWanted => ("not_wanted", Vec::new()),
             };

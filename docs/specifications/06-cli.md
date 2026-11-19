@@ -140,7 +140,8 @@ serving. It exits 0. A location row is left out when the intensity is
 stated. <!-- AC/FE-52 -->
 
 **A key whose provider declined is warned about** below the rows, naming the
-key by its hint and pointing to `carbontracker init`. <!-- AC/FE-61 -->
+key by its hint, giving the reason the provider declined, and pointing to
+`carbontracker init`. <!-- AC/FE-61 -->
 
 **`check -v` adds every candidate's verdict** (serving, or why not) after the
 rows. <!-- AC/FE-60 -->

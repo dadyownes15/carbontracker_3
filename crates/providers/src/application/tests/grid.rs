@@ -58,6 +58,14 @@ fn verdict(resolution: &Resolution, name: &str) -> Verdict {
         .unwrap_or_else(|| panic!("{name} is recorded: {resolution}"))
 }
 
+/// The reason `name` declined; panics if it did not.
+fn declined(resolution: &Resolution, name: &str) -> String {
+    match verdict(resolution, name) {
+        Verdict::Declined(reason) => reason,
+        other => panic!("{name} did not decline: {other:?}"),
+    }
+}
+
 fn serving(resolution: &Resolution, name: &str) -> bool {
     matches!(verdict(resolution, name), Verdict::Serving(_))
 }
@@ -169,7 +177,7 @@ async fn no_config_with_a_key_bills_and_forecasts_the_estimated_zone() {
     assert!(forecast_query.url.query_pairs().any(|(key, value)| key == "horizonHours" && value == "24"));
 }
 
-/// AC/PROV-7 AC/PROV-8 AC/PROV-17 AC/PROV-46
+/// AC/PROV-7 AC/PROV-8 AC/PROV-17 AC/PROV-46 AC/PROV-53
 #[tokio::test]
 async fn no_config_and_no_key_bills_the_estimated_country_average() {
     let server = MockServer::start().await;
@@ -177,9 +185,9 @@ async fn no_config_and_no_key_bills_the_estimated_country_average() {
 
     let resolution = probe(&server, config(None, false)).await;
 
-    assert_eq!(verdict(&resolution, "electricity-maps"), Verdict::Declined);
+    assert_eq!(declined(&resolution, "electricity-maps"), "no Electricity Maps key");
     assert!(serving(&resolution, "country-average"));
-    assert_eq!(verdict(&resolution, "electricity-maps-forecast"), Verdict::Declined);
+    assert_eq!(declined(&resolution, "electricity-maps-forecast"), "no Electricity Maps key");
     assert_eq!(verdict(&resolution, "projection"), Verdict::Serving(vec!["modelled forecast for DK, 24 h".to_owned()]));
 
     let (intensity, forecast) = grid_sources(&resolution);
@@ -228,13 +236,13 @@ async fn a_stated_global_or_pinned_intensity_touches_no_network() {
     }
 }
 
-/// AC/PROV-6 AC/PROV-7 AC/PROV-9 AC/PROV-46
+/// AC/PROV-6 AC/PROV-7 AC/PROV-9 AC/PROV-46 AC/PROV-53
 #[tokio::test]
 async fn an_ip_service_that_is_slow_failing_or_countryless_falls_to_the_global_average() {
-    for answer in [
-        ok(IPINFO).set_delay(Duration::from_secs(5)),
-        ResponseTemplate::new(500),
-        ok(r#"{"ip":"127.0.0.1","bogon":true}"#),
+    for (answer, why) in [
+        (ok(IPINFO).set_delay(Duration::from_secs(5)), "timed out"),
+        (ResponseTemplate::new(500), "500"),
+        (ok(r#"{"ip":"127.0.0.1","bogon":true}"#), "no country"),
     ] {
         let server = MockServer::start().await;
         Mock::given(method("GET")).and(path("/json")).respond_with(answer).mount(&server).await;
@@ -244,7 +252,8 @@ async fn an_ip_service_that_is_slow_failing_or_countryless_falls_to_the_global_a
 
         assert!(started.elapsed() < Duration::from_secs(2), "the timeout bounds probing");
         assert_eq!(resolution.location(), None);
-        assert_eq!(verdict(&resolution, "ip-geolocation"), Verdict::Declined);
+        let reason = declined(&resolution, "ip-geolocation");
+        assert!(reason.contains(why), "{reason:?} says {why:?}");
         assert!(serving(&resolution, "global-average"));
         assert!(serving(&resolution, "projection"));
 
@@ -259,7 +268,7 @@ async fn an_ip_service_that_is_slow_failing_or_countryless_falls_to_the_global_a
     }
 }
 
-/// AC/PROV-7 AC/PROV-8
+/// AC/PROV-7 AC/PROV-8 AC/PROV-53
 #[tokio::test]
 async fn a_refused_key_falls_to_the_country_average() {
     let server = MockServer::start().await;
@@ -269,9 +278,11 @@ async fn a_refused_key_falls_to_the_country_average() {
 
     let resolution = probe(&server, config(None, true)).await;
 
-    assert_eq!(verdict(&resolution, "electricity-maps"), Verdict::Declined);
+    for candidate in ["electricity-maps", "electricity-maps-forecast"] {
+        let reason = declined(&resolution, candidate);
+        assert!(reason.contains("refused the key (401 Unauthorized)"), "{candidate}: {reason:?}");
+    }
     assert!(serving(&resolution, "country-average"));
-    assert_eq!(verdict(&resolution, "electricity-maps-forecast"), Verdict::Declined);
     assert!(serving(&resolution, "projection"));
 }
 
@@ -311,7 +322,7 @@ async fn a_key_without_forecast_access_gets_the_projection() {
     let resolution = probe(&server, config(None, true)).await;
 
     assert!(serving(&resolution, "electricity-maps"));
-    assert_eq!(verdict(&resolution, "electricity-maps-forecast"), Verdict::Declined);
+    assert!(declined(&resolution, "electricity-maps-forecast").contains("403"));
     assert!(serving(&resolution, "projection"));
     let (_, forecast) = grid_sources(&resolution);
     assert_eq!(forecast.location(), &zone("DK-DK2"));
@@ -325,13 +336,13 @@ async fn a_country_without_its_own_zone_falls_to_the_country_average() {
 
     let resolution = probe(&server, config(Some(country("CL")), true)).await;
 
-    assert_eq!(verdict(&resolution, "electricity-maps"), Verdict::Declined);
+    assert!(declined(&resolution, "electricity-maps").contains("404"));
     let (intensity, _) = grid_sources(&resolution);
     assert_eq!(location_of(&intensity), &country("CL"));
     assert_eq!(requests_to(&server, LATEST_PATH).await, 1);
 }
 
-/// AC/PROV-10 AC/PROV-17
+/// AC/PROV-10 AC/PROV-17 AC/PROV-53
 #[tokio::test]
 async fn a_forecast_for_another_zone_is_declined() {
     let server = MockServer::start().await;
@@ -341,7 +352,8 @@ async fn a_forecast_for_another_zone_is_declined() {
 
     let resolution = probe(&server, config(None, true)).await;
 
-    assert_eq!(verdict(&resolution, "electricity-maps-forecast"), Verdict::Declined);
+    let reason = declined(&resolution, "electricity-maps-forecast");
+    assert!(reason.contains("DK-DK1") && reason.contains("DK-DK2"), "{reason:?}");
     assert!(serving(&resolution, "projection"));
     let (_, forecast) = grid_sources(&resolution);
     assert_eq!(forecast.location(), &zone("DK-DK2"));

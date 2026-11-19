@@ -6,18 +6,18 @@ use crate::adapters::constant::StaticProvider;
 use crate::application::chain::Chain;
 use crate::domain::config::Measure;
 use crate::domain::verdict::Verdict;
-use crate::ports::Outcome;
+use crate::ports::{Outcome, Probed};
 
 const A: ProviderId = ProviderId(90);
 const B: ProviderId = ProviderId(91);
 
 /// A candidate offering `domains` on one device, at measured fidelity.
-fn offering(id: ProviderId, device: &str, domains: &[PowerDomain]) -> Option<Outcome> {
+fn offering(id: ProviderId, device: &str, domains: &[PowerDomain]) -> Probed {
     scoped(id, device, domains, PowerScope::DeviceTotal)
 }
 
 /// [offering], measuring `scope` of the device.
-fn scoped(id: ProviderId, device: &str, domains: &[PowerDomain], scope: PowerScope) -> Option<Outcome> {
+fn scoped(id: ProviderId, device: &str, domains: &[PowerDomain], scope: PowerScope) -> Probed {
     let descriptions = domains
         .iter()
         .enumerate()
@@ -36,7 +36,7 @@ fn scoped(id: ProviderId, device: &str, domains: &[PowerDomain], scope: PowerSco
         .collect();
 
     let provider = StaticProvider::new((0..domains.len()).map(|slot| (SourceId::new(id, slot as u16), 1.0)));
-    Some(Outcome { descriptions, provider: Box::new(provider) })
+    Ok(Outcome { descriptions, provider: Box::new(provider) })
 }
 
 fn verdict(chain: &Chain<'_>, name: &str) -> Verdict {
@@ -230,7 +230,7 @@ fn the_resolution_gives_each_source_its_providers_cooldown() {
     let mut chain = Chain::new(&wanted, &mut quiet);
     let mut counter = offering(A, "Card #0", &[PowerDomain::Gpu]).expect("offered");
     counter.provider = Box::new(SlowCounter);
-    chain.take(A, "nvml", Some(counter));
+    chain.take(A, "nvml", Ok(counter));
     chain.take(B, "static-cpu", offering(B, "static", &[PowerDomain::Cpu]));
 
     let second = carbontracker::Cooldown::After(std::time::Duration::from_secs(1));
