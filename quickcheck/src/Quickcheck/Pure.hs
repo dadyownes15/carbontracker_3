@@ -125,13 +125,13 @@ selectedOnly c _ t = conjoin
 sampled :: Built -> S.Set SourceId
 sampled b = S.fromList [src | PureEvent _ (PLand _ ss) <- pcEvents (builtCase b), (src, _ : _) <- M.toList ss]
 
--- AC/TST-15, AC/PROF-31, AC/MEAS-92
--- | Exact under Queue unless the provider hangs or panics: a failed read
--- leaves its request open and the provider is read again (08, when a read
--- fails). A hang outlasts the retry and a panic ends it; then a segment may
--- be billed from what the store held, so never more than the truth.
+-- AC/TST-15, AC/PROF-31, AC/MEAS-96
+-- | Exact under Queue when every read of the provider succeeds. A failed
+-- read answers its request (08, when a read fails), so a segment accounted
+-- before the source's first sample is billed nothing; after any failure a
+-- source is billed never more than the truth.
 conserves :: Case -> Built -> PureTrace -> Property
-conserves c b t = cover 40 (not (null exact)) "a Queue source with no hang or panic is checked exactly" $ conjoin
+conserves c b t = cover 40 (not (null exact)) "a Queue source whose reads all succeed is checked exactly" $ conjoin
   [ counterexample (T.unpack src ++ ": billed " ++ show got ++ " J, expected " ++ (if healthy then "" else "at most ") ++ show want)
       (if healthy then near got want else got <= want * (1 + 1e-9))
   -- Exact only under Queue: under Skip a segment may be accounted before its
@@ -145,7 +145,7 @@ conserves c b t = cover 40 (not (null exact)) "a Queue source with no hang or pa
         got = sum [psEnergy s | s <- ptSegments t, psSource s == src] ]
   where
     constant src = maybe 0 snd (listToMaybe (M.findWithDefault [] src (caseTruth c)))
-    ok = \case ReadHang -> False; ReadPanic _ -> False; _ -> True
+    ok = \case ReadOk l -> l <= caseTimeout c; _ -> False
     exact = [ () | p <- caseProviders c, provPolicy p == Queue, all ok (provReads p)
                  , PowerSource slot _ kind <- provSources p, kind /= Total
                  , S.member (sourceId (provId p) slot) (sampled b) ]

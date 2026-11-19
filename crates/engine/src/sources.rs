@@ -134,7 +134,7 @@ impl Sources {
                     UnreadyActions::QUEUE
                 };
                 let policy = fetch.providers.get(&id).copied().unwrap_or(default);
-                (id, Reader::new(provider, serves, policy, fetch.timeout).retrying(fetch.retry_for))
+                (id, Reader::new(provider, serves, policy, fetch.timeout))
             })
             .collect();
         let catalog = SourceCatalog::pairing_all(self.descriptions, self.intensity);

@@ -104,7 +104,7 @@ toPure c = Built
     providerOfSource x = read (takeWhile (/= '.') (T.unpack x)) :: ProviderId
 
     start0 = Acc 1 (M.fromList [(provId p, PState [] 0 0 0) | p <- ps]) [] 0 [] 0
-    opened = foldl' (\a p -> snd (startRead p 0 True a)) start0 (map provId ps)
+    opened = foldl' (\a p -> snd (startRead p 0 a)) start0 (map provId ps)
     final = foldl' (\a (i, Op t body) -> cutAt i t body (watchdogsBefore t a)) opened ops
     allReads = concatMap stReads (M.elems (accStates final))
 
@@ -150,12 +150,12 @@ toPure c = Built
           if t >= rStart r + timeout then answerNow p t a
           else if rStart r == t || never p then (Just (rRequest r), note ReadOut a)
           else unready p t (maybe t id (rHome r)) a
-      | t >= cooledAt p a = let (q, a') = startRead p t True a in (Just q, note ReadNow a')
+      | t >= cooledAt p a = let (q, a') = startRead p t a in (Just q, note ReadNow a')
       | otherwise = unready p t t a
     unready p t home a = case policy p of
       Queue ->
         let s = max home (cooledAt p a)
-            (q, a') = startRead p s True a
+            (q, a') = startRead p s a
         in (Just q, note Queued a')
       Skip -> answerNow p t a
 
@@ -167,20 +167,12 @@ toPure c = Built
 
     sent p t a = a { accStates = M.adjust (\s -> s { stLastSent = max (stLastSent s) t, stWatchdog = t + period p }) p (accStates a) }
 
-    -- A read of p starting at s for a fresh request; its readout is emitted.
-    -- A cut's request (the opening read included) under Queue is not
-    -- answered by a failed read: that failure lands under a fresh id, and
-    -- the same request is read again once the provider is home and cooled,
-    -- giving up `retryFor` after it was first sent (08, when a read fails).
-    startRead p s isCut a = readFor p s isCut Nothing a
-
-    readFor p s isCut reuse a =
+    -- A read of p starting at s for a fresh request; its readout lands with
+    -- what the read gave, failed or not (08, when a read fails).
+    startRead p s a =
       let prov = byId M.! p
-          q = maybe (accNext a) fst reuse
-          sentAt = maybe s snd reuse
-          a0 = case reuse of
-            Nothing -> a { accNext = accNext a + 1 }
-            Just _ -> a
+          q = accNext a
+          a0 = a { accNext = accNext a + 1 }
           s0 = st p a0
           bs = provReads prov
           b = if null bs then ReadOk 0 else bs !! min (stBehaviour s0) (length bs - 1)
@@ -198,25 +190,8 @@ toPure c = Built
             ReadEmpty l -> (Reading s q (s + timeout) (Just (s + l)) False False True, PLand q M.empty)
             ReadHang -> (Reading s q (s + timeout) Nothing False False True, PLand q M.empty)
             ReadPanic l -> (Reading s q (s + min l timeout) (Just (s + l)) False True (l > timeout), PLand q M.empty)
-          failed = case b of
-            ReadOk l -> l > timeout
-            ReadEmpty _ -> True
-            ReadHang -> True
-            ReadPanic _ -> False
           a1 = a0 { accStates = M.insert p s0 { stReads = r : stReads s0, stBehaviour = stBehaviour s0 + 1 } (accStates a0) }
-      in if not (isCut && policy p == Queue && failed)
-           then (q, sent p s (emit (rAnswer r) land a1))
-           else
-             let fresh = accNext a1
-                 a2 = (emit (rAnswer r) (PLand fresh M.empty) a1) { accNext = fresh + 1 }
-                 next = fmap (\h -> max h (s + cooldownOf p)) (rHome r)
-                 giveUp = max (rAnswer r) (sentAt + retryFor)
-             in case next of
-                  Just n | n < sentAt + retryFor ->
-                    let (_, a3) = readFor p n True (Just (q, sentAt)) (sent p s a2) in (q, a3)
-                  _ -> (q, sent p s (emit giveUp (PLand q M.empty) a2))
-
-    retryFor = 30 * 1000000
+      in (q, sent p s (emit (rAnswer r) land a1))
 
     -- Every watchdog read due before t, at the instant it is due. A provider
     -- due while it is unready is asked once it is home and cooled; one that is
@@ -232,5 +207,5 @@ toPure c = Built
       | done p d a || retired p d a = defer never' a
       | (r : _) <- out p d a ++ queued p d a = defer (maybe never' (max (d + 1)) (rHome r)) a
       | d < cooledAt p a = defer (cooledAt p a) a
-      | otherwise = let (_, a') = startRead p d False a in a' { accWatchdog = accWatchdog a' + 1 }
+      | otherwise = let (_, a') = startRead p d a in a' { accWatchdog = accWatchdog a' + 1 }
       where defer at acc = acc { accStates = M.adjust (\s -> s { stWatchdog = at }) p (accStates acc) }
