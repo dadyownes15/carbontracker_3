@@ -11,3 +11,10 @@ __pycache__/
 # The extension maturin develop builds into the Python sources.
 crates/python/python/carbontracker/_native*.so
 logs/
+x/run-20261103_234511-vqkyq0q7/
+
+# Private example runner.
+examples/run_all.sh
+docs/
+.claude/
+CLAUDE.md
