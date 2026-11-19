@@ -90,9 +90,10 @@ fn warnings(text: &str) -> Vec<&str> {
     text.lines().filter(|line| line.contains("WARNING - ")).collect()
 }
 
-/// AC/OUT-3, AC/OUT-7, AC/OUT-11, AC/OUT-15, AC/OUT-20, AC/OUT-30
+/// AC/OUT-3, AC/OUT-7, AC/OUT-11, AC/OUT-12, AC/OUT-15, AC/OUT-20, AC/OUT-30
 #[test]
 fn every_failed_read_is_a_warning_at_every_verbosity_and_nothing_else_is() {
+    let mut printed = Vec::new();
     for verbosity in VERBOSITIES {
         let (mut sink, out) = console(verbosity);
         deliver(&mut sink, &started()).unwrap();
@@ -100,12 +101,16 @@ fn every_failed_read_is_a_warning_at_every_verbosity_and_nothing_else_is() {
             deliver(&mut sink, &item).unwrap();
         }
         let text = out.text();
-        let warnings = warnings(&text);
+        let warnings: Vec<String> = warnings(&text).into_iter().map(str::to_owned).collect();
         assert_eq!(warnings.len(), 3, "{verbosity:?}: {text}");
-        for warning in warnings {
+        for warning in &warnings {
             assert!(warning.contains("nvml") && warning.contains("unavailable"), "{verbosity:?}: {warning}");
         }
+        printed.push(warnings);
     }
+    // The same text at every verbosity.
+    assert_eq!(printed[0], printed[1]);
+    assert_eq!(printed[0], printed[2]);
 }
 
 /// AC/OUT-13
