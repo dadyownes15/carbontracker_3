@@ -1,5 +1,5 @@
-//! [Readers]: every provider, each behind its [Gate], read on threads of
-//! their own. A request goes to one provider and lands as one readout once
+//! [Readers]: every provider, each behind its [Gate], read on a worker
+//! thread of its own. A request goes to one provider and lands as one readout once
 //! that provider has answered it.
 
 use std::collections::HashMap;
@@ -15,15 +15,14 @@ use crate::domain::session::RequestId;
 use crate::domain::{Observation, ProviderError, ProviderId, ReadoutId, ReadoutResponse, SourceId, Timestamp};
 use crate::ports::outbound::{Provider, ProviderResponse, Reading};
 
-/// What a read thread sends back: the provider, unless it panicked, and what
-/// the read came back with.
+/// What a worker sends back: what the read came back with, or the panic
+/// that ended the worker.
 pub(crate) struct ReadReturn {
     provider: ProviderId,
-    back: Option<Box<dyn Provider>>,
     result: Result<Result<ProviderResponse, ProviderError>, String>,
 }
 
-/// Where read threads send what they read.
+/// Where workers send what they read.
 pub(crate) type Returns = mpsc::UnboundedReceiver<ReadReturn>;
 
 /// What one provider's gate asks of the readers.
@@ -31,8 +30,10 @@ type Effects = Vec<Effect<RequestId, Vec<(SourceId, Observation)>>>;
 
 /// One provider, as the engine holds it.
 pub(crate) struct Reader {
-    /// `None` while lent to a read, and once retired.
+    /// The provider until its worker starts.
     provider: Option<Box<dyn Provider>>,
+    /// Its worker: one job per read. `None` if none could be started.
+    worker: Option<std::sync::mpsc::Sender<()>>,
     /// Every source it serves, sorted.
     serves: Vec<SourceId>,
     gate: Gate<RequestId, Vec<(SourceId, Observation)>>,
@@ -59,6 +60,7 @@ impl Reader {
         let cooldown: Cooldown = provider.cooldown();
         Self {
             provider: Some(provider),
+            worker: None,
             serves,
             gate: Gate::new(cooldown, policy, timeout),
             asks: if cooldown == Cooldown::Never { Asks::never() } else { Asks::default() },
@@ -84,7 +86,6 @@ pub(crate) struct Readers {
     /// How long the watchdog leaves a provider unasked, at least.
     interval: Duration,
     next_request: usize,
-    sender: mpsc::UnboundedSender<ReadReturn>,
 }
 
 impl Readers {
@@ -92,7 +93,12 @@ impl Readers {
     /// without a request; read threads send back on the returned [Returns].
     pub(crate) fn new(readers: HashMap<ProviderId, Reader>, interval: Duration) -> (Self, Returns) {
         let (sender, returns) = mpsc::unbounded_channel();
-        (Self { readers, interval, next_request: 1, sender }, returns)
+        let mut readers = readers;
+        for (&id, reader) in &mut readers {
+            let provider = reader.provider.take().expect("a new reader holds its provider");
+            reader.worker = spawn_worker(id, provider, sender.clone());
+        }
+        (Self { readers, interval, next_request: 1 }, returns)
     }
 
     /// Every provider, in id order.
@@ -135,7 +141,6 @@ impl Readers {
         let Some(reader) = self.readers.get_mut(&read.provider) else {
             return landed;
         };
-        reader.provider = read.back;
         reader.asks.transition();
         let returned = match read.result {
             Ok(result) => {
@@ -197,22 +202,11 @@ impl Readers {
             .min()
     }
 
-    /// Drop every provider the engine holds, on a thread of its own: those
-    /// at home, and those whose reads came back unheard on `returns`. A
-    /// provider still out on a read is dropped by that read's thread once it
-    /// returns, since nobody is listening any more.
+    /// Stop every worker: each drops its provider on its own thread, once
+    /// any read it is on returns.
     pub(crate) fn close(self, mut returns: Returns) {
         returns.close();
-        let mut providers: Vec<Box<dyn Provider>> =
-            self.readers.into_values().filter_map(|reader| reader.provider).collect();
-        while let Ok(read) = returns.try_recv() {
-            providers.extend(read.back);
-        }
-        if !providers.is_empty() {
-            let _ = std::thread::Builder::new().name("carbontracker-drop".to_owned()).spawn(move || {
-                let _ = panic::catch_unwind(AssertUnwindSafe(move || drop(providers)));
-            });
-        }
+        drop(self.readers);
     }
 
     /// Send `provider` a fresh request from `asker`, and reset its watchdog.
@@ -280,41 +274,53 @@ impl Readers {
         }
     }
 
-    /// Lend `provider` to a thread of its own for one read. If no thread can
-    /// be started, the read panicked as far as the gate is concerned: returns
-    /// the gate's effects.
+    /// Hand `provider`'s worker one read. If it has no worker, the read
+    /// panicked as far as the gate is concerned: returns the gate's effects.
     fn start(&mut self, provider: ProviderId) -> Option<Effects> {
         let reader = self.readers.get_mut(&provider).expect("only a known provider starts");
-        let Some(lent) = reader.provider.take() else {
-            unreachable!("the gate starts a read only while the provider is home");
-        };
-        // Shared, so a thread that never starts leaves the provider here.
-        let lent = std::sync::Arc::new(std::sync::Mutex::new(Some(lent)));
-        let taken = std::sync::Arc::clone(&lent);
-        let sender = self.sender.clone();
-        let started = std::thread::Builder::new().name(format!("carbontracker-read-{}", provider.0)).spawn(move || {
-            let Some(mut lent) = taken.lock().ok().and_then(|mut slot| slot.take()) else { return };
-            drop(taken);
-            let result = panic::catch_unwind(AssertUnwindSafe(|| lent.read())).map_err(panic_message);
-            let back = if result.is_ok() {
-                Some(lent)
-            } else {
-                // A provider that panicked is never read again: drop it here.
-                let _ = panic::catch_unwind(AssertUnwindSafe(move || drop(lent)));
-                None
-            };
-            if let Err(unheard) = sender.send(ReadReturn { provider, back, result }) {
-                // The session has ended: drop the provider here.
-                let _ = panic::catch_unwind(AssertUnwindSafe(move || drop(unheard.0)));
-            }
-        });
-        started.is_err().then(|| {
-            // Kept at home, so [Readers::close] drops it off this thread.
-            reader.provider = lent.lock().ok().and_then(|mut slot| slot.take());
-            let failed = Returned::Panicked("no thread could be started for the read".to_owned());
+        let sent = reader.worker.as_ref().is_some_and(|worker| worker.send(()).is_ok());
+        (!sent).then(|| {
+            let failed = Returned::Panicked("no thread could be started for the provider".to_owned());
             reader.gate.returned(failed, Instant::now())
         })
     }
+}
+
+/// Start `provider`'s worker: it reads once per job, sends what it read to
+/// `returns`, and drops the provider on its own thread when the jobs end or
+/// a read panics. `None` if no thread could be started; the provider is
+/// then leaked, never dropped on the tracker thread.
+fn spawn_worker(
+    id: ProviderId,
+    provider: Box<dyn Provider>,
+    returns: mpsc::UnboundedSender<ReadReturn>,
+) -> Option<std::sync::mpsc::Sender<()>> {
+    let (jobs, inbox) = std::sync::mpsc::channel::<()>();
+    // Shared, so a thread that never starts leaves the provider here.
+    let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(provider)));
+    let taken = std::sync::Arc::clone(&slot);
+    let started = std::thread::Builder::new().name(format!("carbontracker-read-{}", id.0)).spawn(move || {
+        let Some(mut provider) = taken.lock().ok().and_then(|mut slot| slot.take()) else { return };
+        drop(taken);
+        while inbox.recv().is_ok() {
+            let result = panic::catch_unwind(AssertUnwindSafe(|| provider.read())).map_err(panic_message);
+            if result.is_err() {
+                // A provider that panicked is never read again.
+                let _ = panic::catch_unwind(AssertUnwindSafe(move || drop(provider)));
+                let _ = returns.send(ReadReturn { provider: id, result });
+                return;
+            }
+            if returns.send(ReadReturn { provider: id, result }).is_err() {
+                break;
+            }
+        }
+        let _ = panic::catch_unwind(AssertUnwindSafe(move || drop(provider)));
+    });
+    if started.is_err() {
+        std::mem::forget(slot.lock().ok().and_then(|mut slot| slot.take()));
+        return None;
+    }
+    Some(jobs)
 }
 
 /// A readout for `request` carrying `observations`.
