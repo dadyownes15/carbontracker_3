@@ -982,8 +982,11 @@ fn a_world_average_nobody_asked_for_says_why() {
 /// AC/OUT-22, AC/OUT-32
 #[test]
 fn a_modelled_source_nobody_asked_for_is_a_warning_at_start() {
-    let out = Shared::default();
-    let mut country = config(standard_sinks(console(&out, Verbosity::Quiet), None).unwrap());
+    let (out, everything) = (Shared::default(), Shared::default());
+    let mut sinks = standard_sinks(console(&out, Verbosity::Quiet), None).unwrap();
+    let layout = Layout::Summary { title: "work".to_owned() };
+    sinks.push(Box::new(ConsoleSink::new(everything.clone(), Verbosity::Everything, layout, None)));
+    let mut country = config(sinks);
     country.probe.grid = GridConfig {
         location: Some(GridLocation::Country { country_code: "DK".to_owned() }),
         ..GridConfig::default()
@@ -991,10 +994,23 @@ fn a_modelled_source_nobody_asked_for_is_a_warning_at_start() {
     country.probe.pinned.intensity = None;
     let run = start(country, |_, _| ()).unwrap();
     let at_start = out.text();
+    let span = run.start_span("work", None);
+    std::thread::sleep(Duration::from_millis(50));
+    run.stop_span(span, Work::default());
     run.finish(Outcome::Exited { code: 0 }).unwrap();
     let [warning] = at_start.lines().collect::<Vec<_>>()[..] else { panic!("{at_start}") };
     assert!(warning.starts_with("CarbonTracker: WARNING - "), "{warning}");
     assert!(warning.contains("DK") && warning.contains("modelled"), "{warning}");
+
+    // At Everything, no event line comes between the ready line and the warning.
+    let everything = everything.text();
+    let lines: Vec<&str> = everything.lines().collect();
+    let at = |wanted: &dyn Fn(&str) -> bool| lines.iter().position(|line| wanted(line)).unwrap_or_else(|| panic!("{everything}"));
+    let ready = at(&|line| line.contains("ready. Starting work"));
+    let warned = at(&|line| line == warning);
+    let span_started = at(&|line| timed(line) && line.ends_with("work started"));
+    assert_eq!(warned, ready + 1, "{everything}");
+    assert!(warned < span_started, "{everything}");
 
     // A stated draw and intensity on the world-average grid, as asked.
     let asked = Shared::default();
