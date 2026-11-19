@@ -270,9 +270,13 @@ async fn a_panicking_provider_is_retired_alone() {
         power.iter().all(|o| *o == panicked || *o == Observation::Failed(Failure::Retired)),
         "{power:?}"
     );
+    // The grid skips, so a request that finds its read still out on a slow
+    // host is `Skipped`. Nothing of the panic reaches it.
+    let grid = &observed[&source(GRID)];
+    assert!(grid.iter().any(|o| matches!(o, Observation::Samples(_))), "the grid was read: {grid:?}");
     assert!(
-        observed[&source(GRID)].iter().all(|o| matches!(o, Observation::Samples(_))),
-        "the other provider is unaffected"
+        !grid.iter().any(|o| matches!(o, Observation::Failed(Failure::Panicked(_) | Failure::Retired))),
+        "the other provider is unaffected: {grid:?}"
     );
 }
 
