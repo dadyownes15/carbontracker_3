@@ -681,21 +681,12 @@ mod tests {
         assert_eq!(reads_of(&reads), 3, "never asked again");
     }
 
-    /// Fails its first `fails` reads with `Unavailable`, then reads 1 W.
-    struct Flaky {
-        fails: usize,
-        reads: std::sync::Arc<std::sync::atomic::AtomicUsize>,
-    }
+    /// Fails every read with `Unavailable`.
+    struct Failing;
 
-    impl Provider for Flaky {
+    impl Provider for Failing {
         fn read(&mut self) -> Result<ProviderResponse, ProviderError> {
-            let n = self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            if n < self.fails {
-                return Err(ProviderError::Unavailable("the driver is busy".to_owned()));
-            }
-            let mut response = ProviderResponse::new();
-            response.samples(source(0), vec![sample()]);
-            Ok(response)
+            Err(ProviderError::Unavailable("the driver is busy".to_owned()))
         }
 
         fn cooldown(&self) -> Cooldown {
@@ -703,9 +694,10 @@ mod tests {
         }
     }
 
-    fn flaky(fails: usize, policy: UnreadyActions) -> (Readers, Returns) {
-        let provider = Flaky { fails, reads: std::sync::Arc::default() };
-        let reader = Reader::new(Box::new(provider), vec![source(0)], policy, TIMEOUT);
+    /// One reader under `policy` over a provider whose every read fails, the
+    /// watchdog every minute.
+    fn failing_reader(policy: UnreadyActions) -> (Readers, Returns) {
+        let reader = Reader::new(Box::new(Failing), vec![source(0)], policy, TIMEOUT);
         Readers::new(HashMap::from([(ProviderId(1), reader)]), Duration::from_secs(60))
     }
 
@@ -713,7 +705,7 @@ mod tests {
     #[test]
     fn under_either_policy_a_failed_read_answers_its_request() {
         for policy in [UnreadyActions::QUEUE, UnreadyActions::SKIP] {
-            let (mut readers, mut returns) = flaky(1, policy);
+            let (mut readers, mut returns) = failing_reader(policy);
             let t0 = Instant::now();
             let request = readers.ask(ProviderId(1), stamp(0), t0, stamp(0)).0.expect("a request");
             let read = returns.blocking_recv().expect("the read returns");
