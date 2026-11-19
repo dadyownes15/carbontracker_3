@@ -109,7 +109,7 @@ equals in km by car, and the run's folder when there is one. <!-- AC/FE-45 -->
 
 **`--verbose` adds every probe step, event and readout**, each with its time.
 Without it, a run prints only what is measured, warnings, errors and the
-closing block. <!-- AC/FE-46 -->
+closing block; what each verbosity prints is [12](12-output.md). <!-- AC/FE-46 -->
 
 ## The run folder
 
@@ -120,7 +120,7 @@ time is local, as a user browsing the folder reads it. The record is
 [05](05-record-v1.md). <!-- AC/FE-47 -->
 
 **`output.log` holds what the console printed at normal verbosity**, whether
-or not `--verbose` was given. <!-- AC/FE-48 -->
+or not `--verbose` was given ([12](12-output.md)). <!-- AC/FE-48 -->
 
 **Runs started together in one directory never share a folder.** <!-- AC/FE-49 -->
 

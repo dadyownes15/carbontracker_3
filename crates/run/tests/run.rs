@@ -9,7 +9,7 @@ use std::time::Duration;
 use carbontracker::{GramsCo2ePerKwh, GridLocation, TrackerConfig, TrackerEvent, Watts};
 use carbontracker_providers::{GridConfig, Pinned, ProbeConfig};
 use carbontracker_run::{
-    LatestForecast, Console, Folder, Layout, Outcome, Predictor, RunConfig, Sink, Started, Verbosity,
+    LatestForecast, Console, ConsoleSink, Folder, Layout, Outcome, Predictor, RunConfig, Sink, Started, Verbosity,
     Work, standard_sinks, start,
 };
 
@@ -179,6 +179,51 @@ fn everything_shows_each_event_but_output_log_keeps_to_normal() {
     );
     let output = std::fs::read_to_string(folder.output_log()).unwrap();
     assert!(!output.contains("work started"), "{output}");
+}
+
+/// Whether `line`, after the prefix, starts with a time `HH:MM:SS`.
+fn timed(line: &str) -> bool {
+    let rest = line.strip_prefix("CarbonTracker: ").unwrap_or("").as_bytes();
+    rest.len() > 8
+        && [0, 1, 3, 4, 6, 7].iter().all(|&at| rest[at].is_ascii_digit())
+        && rest[2] == b':'
+        && rest[5] == b':'
+}
+
+/// AC/OUT-1, AC/OUT-4, AC/OUT-5, AC/OUT-8, AC/OUT-9, AC/OUT-10, AC/OUT-12, AC/OUT-14
+#[test]
+fn each_verbosity_only_adds_lines_and_output_log_is_normal() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = Folder::claim(dir.path(), None).unwrap();
+    let logs = Some(folder.path().display().to_string());
+    let (quiet, normal, everything) = (Shared::default(), Shared::default(), Shared::default());
+    let mut sinks = standard_sinks(console(&everything, Verbosity::Everything), Some(&folder)).unwrap();
+    for (out, verbosity) in [(&quiet, Verbosity::Quiet), (&normal, Verbosity::Normal)] {
+        let layout = Layout::Summary { title: "work".to_owned() };
+        sinks.push(Box::new(ConsoleSink::new(out.clone(), verbosity, layout, logs.clone())));
+    }
+    one_span(config(sinks));
+
+    assert_eq!(quiet.text(), "");
+    let normal = normal.text();
+    assert!(normal.contains("CarbonTracker: power ") && normal.contains("ready. Starting work\n"), "{normal}");
+    assert!(normal.contains("work summary:\n"), "{normal}");
+    assert_eq!(std::fs::read_to_string(folder.output_log()).unwrap(), normal);
+
+    let everything = everything.text();
+    assert!(everything.lines().any(timed), "{everything}");
+    let untimed: String = everything.lines().filter(|line| !timed(line)).map(|line| format!("{line}\n")).collect();
+    assert_eq!(untimed, normal);
+}
+
+/// AC/OUT-24
+#[test]
+fn a_failed_sink_is_a_warning_at_quiet() {
+    let out = Shared::default();
+    let mut sinks = vec![Box::new(Failing) as Box<dyn Sink>];
+    sinks.extend(standard_sinks(console(&out, Verbosity::Quiet), None).unwrap());
+    one_span(config(sinks));
+    assert_eq!(out.text(), "CarbonTracker: WARNING - the failing sink failed and stopped: disk full\n");
 }
 
 /// AC/REC-1, AC/REC-6, AC/REC-7

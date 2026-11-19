@@ -93,7 +93,7 @@ fn a_command_killed_by_a_signal_exits_128_plus_its_number() {
     assert_eq!(*outcome, serde_json::json!({"at": outcome["at"], "kind": "outcome", "ended": "signalled", "signal": 15}));
 }
 
-/// AC/FE-2
+/// AC/FE-2, AC/OUT-31
 #[test]
 fn the_commands_stdout_passes_through_untouched() {
     let dir = tempfile::tempdir().unwrap();

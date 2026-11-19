@@ -3,7 +3,7 @@
 What every frontend prints to the console while it tracks, and which lines
 each verbosity keeps. The command ([06](06-cli.md)) and the package
 ([10](10-python.md)) choose a verbosity; the run's console sink
-([04](04-run.md)) decides what each one prints. <!-- AC/OUT-1 unbuilt -->
+([04](04-run.md)) decides what each one prints. <!-- AC/OUT-1 -->
 
 Each example below is a test: the setup, what the console is given, and what
 it prints, with the rules it checks.
@@ -16,8 +16,8 @@ Every line the console prints is one of four kinds.
 |---|---|
 | Error | The session, or part of it, could not go on | <!-- AC/OUT-2 -->
 | Warning | A reported figure is less trustworthy than it looks, or something the user asked for did not happen | <!-- AC/OUT-3 -->
-| Info | What is measured, and the closing block | <!-- AC/OUT-4 unbuilt -->
-| Debug | One probe step, event or readout, with its time | <!-- AC/OUT-5 unbuilt -->
+| Info | What is measured, and the closing block | <!-- AC/OUT-4 -->
+| Debug | One probe step, event or readout, with its time | <!-- AC/OUT-5 -->
 
 **A message that could make a reported figure wrong is a warning, never an
 info or debug line.** <!-- AC/OUT-7 -->
@@ -26,20 +26,20 @@ info or debug line.** <!-- AC/OUT-7 -->
 
 | Verbosity | Prints | Command | Package |
 |---|---|---|---|
-| Quiet | Errors and warnings | — | `verbose=0` | <!-- AC/OUT-8 unbuilt -->
-| Normal | Quiet, plus info lines | default | `verbose>=1` | <!-- AC/OUT-9 unbuilt -->
-| Everything | Normal, plus debug lines | `--verbose` | — | <!-- AC/OUT-10 unbuilt -->
+| Quiet | Errors and warnings | — | `verbose=0` | <!-- AC/OUT-8 -->
+| Normal | Quiet, plus info lines | default | `verbose>=1` | <!-- AC/OUT-9 -->
+| Everything | Normal, plus debug lines | `--verbose` | — | <!-- AC/OUT-10 -->
 
 **Errors and warnings print at every verbosity.** No setting silences
 them. <!-- AC/OUT-11 -->
 
 **A higher verbosity only adds lines.** Every line printed at a lower
-verbosity is printed at a higher one, with the same text. <!-- AC/OUT-12 unbuilt -->
+verbosity is printed at a higher one, with the same text. <!-- AC/OUT-12 -->
 
 **A warning prints when its cause is known, not at the end.** A warning raised
 during the session prints during the session. <!-- AC/OUT-13 -->
 
-**`output.log` holds what Normal prints, whatever the verbosity.** <!-- AC/OUT-14 unbuilt -->
+**`output.log` holds what Normal prints, whatever the verbosity.** <!-- AC/OUT-14 -->
 
 > A stated CPU at 10 W and a stated intensity of 100 g/kWh, tracking
 > `sleep 1`, at each verbosity. Quiet prints no line. Normal prints the setup
@@ -78,7 +78,7 @@ Each of these is a warning, at every verbosity:
 | Each of the session report's warnings: thin coverage, no intensity, held intensity, an estimated total, no selected sources | [09](09-profiling.md) | <!-- AC/OUT-21 -->
 | A source that is not measured: modelled or assumed, and not asked for | [03](03-providers.md), [04](04-run.md) | <!-- AC/OUT-22 -->
 | Events were lost: the record is incomplete | [04](04-run.md) | <!-- AC/OUT-23 -->
-| A sink failed and stopped | [04](04-run.md) | <!-- AC/OUT-24 unbuilt -->
+| A sink failed and stopped | [04](04-run.md) | <!-- AC/OUT-24 -->
 | A command was refused: a mark, start or stop the engine did not accept | [02](02-engine.md) | <!-- AC/OUT-25 -->
 
 **Only a measured or stated source warns nothing.** A source whose fidelity
@@ -107,7 +107,7 @@ Quiet prints them without it. <!-- AC/OUT-28 -->
 unchanged read, or a cooldown. <!-- AC/OUT-30 -->
 
 **It never prints to stdout during a command run.** All output is on stderr
-([06](06-cli.md)). <!-- AC/OUT-31 unbuilt -->
+([06](06-cli.md)). <!-- AC/OUT-31 -->
 
 ## Why
 
