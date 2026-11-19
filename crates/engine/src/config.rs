@@ -29,10 +29,6 @@ pub struct FetchPolicy {
     /// How long a read may take before it is abandoned. 10 s by default;
     /// above zero.
     pub timeout: Duration,
-    /// How long a cut's request to a provider that queues stays open after a
-    /// failed read, sent again each time the provider is ready. 30 s by
-    /// default; zero lets a failed read answer it at once.
-    pub retry_for: Duration,
     /// What each provider does while unready. A provider left out queues on
     /// both if it serves power, and skips on both if it serves the intensity.
     pub providers: BTreeMap<ProviderId, UnreadyActions>,
@@ -42,7 +38,6 @@ impl Default for FetchPolicy {
     fn default() -> Self {
         Self {
             timeout: Duration::from_secs(10),
-            retry_for: Duration::from_secs(30),
             providers: BTreeMap::new(),
         }
     }

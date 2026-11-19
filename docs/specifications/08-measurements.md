@@ -213,34 +213,16 @@ and the provider is never read again. Every other provider is unaffected. <!-- A
 
 ### When a read fails
 
-**Under `Queue`, a cut's request is answered only by a read with samples.**
-A read that fails, times out or leaves a source unanswered does not answer
-it. That read lands as a readout of its own, under a fresh id no segment
-waits on, so its failure is still announced. The request stays open and is
-sent again as soon as the provider is ready, until a read answers every
-source it serves with samples. A segment is never billed from a store its
-provider simply had not answered yet. <!-- AC/MEAS-92 -->
+**A failed read answers its request, under either policy.** A read that
+fails, times out or leaves a source unanswered lands with that failure, and
+the request is never sent again. Its segments are billed on what the store
+holds, its last value held flat, and a later cut asks the provider again. A
+failed read cannot hold a span or `finish()` past the timeout. <!-- AC/MEAS-96 -->
 
 > NVML, `Queue`. A stop at 3.30 relies on request 7. The read for request 7
-> fails with `Unavailable`: readout 8 announces the failure, and request 7 is
-> sent again once NVML is ready. That read returns samples, and request 7
-> lands with them; the stop's segment is billed from them.
-
-**An open request is not sent again while the provider's read is out past
-the timeout.** It is sent once that read returns. A hung read cannot make
-the request fail over and over. <!-- AC/MEAS-93 -->
-
-**An open request gives up `retry_for` after it was first sent**, 30 s by
-default: it lands with what the provider's last read gave, and its segments
-are billed on what the store holds, as under `Skip`. A provider that never
-answers cannot hold a session open. `retry_for` is a setting of the fetch
-policy; zero turns the retry off. <!-- AC/MEAS-94 -->
-
-**A panic ends the retry.** The open request lands `Failed(Panicked)` and the
-provider is retired, as above. <!-- AC/MEAS-95 -->
-
-**Under `Skip`, a failed read answers its request.** Its segments are billed
-on what the store holds, and a later cut asks the provider again. <!-- AC/MEAS-96 -->
+> fails with `Unavailable`: request 7 lands with the failure, and the stop's
+> segment is billed on the last sample NVML gave, held to 3.30. The watchdog
+> reads NVML again a readout interval later.
 
 **With `ignore_errors` off, the first failed read stops the session** with an
 error the frontend raises, as 2.4.7 does. <!-- AC/MEAS-97 unbuilt -->
@@ -344,10 +326,9 @@ started before a segment's end has ended before the read that answers that
 end. Under `Skip`, a segment can be accounted while an earlier read is still
 out, and what that read brings changes nothing already accounted. <!-- AC/MEAS-82 -->
 
-**Under `Queue`, a segment whose reads succeed is accounted within
-`max(cooldown, timeout) + timeout` of its end**, the larger over its two
-providers; one whose read fails, within `retry_for` plus that bound. A `Skip` side
-answers at once. Accounting in order does not stretch this: a segment ahead of
+**Under `Queue`, a segment is accounted within `max(cooldown, timeout) +
+timeout` of its end**, the larger over its two providers, whether its reads
+succeed or fail. A `Skip` side answers at once. Accounting in order does not stretch this: a segment ahead of
 it ended earlier, under the same bound. <!-- AC/MEAS-83 quickcheck -->
 
 **A source no span cuts is accounted at `finish()`.** Until then its store
@@ -379,6 +360,7 @@ Under `Skip`, two consequences are known and kept in the suite as
 `#[ignore = "known: …"]`:
 
 - When reads are skipped, ledgers do not sum to what the samples later imply.
+  The same holds under `Queue` when a read fails.
 - A segment accounted before an earlier read lands bills its first sliver from
   an older sample, so ledgers can depend on the order readouts land in. <!-- AC/MEAS-90 -->
 

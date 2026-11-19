@@ -2,7 +2,7 @@
 //! their own. A request goes to one provider and lands as one readout once
 //! that provider has answered it.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::panic::{self, AssertUnwindSafe};
 use std::time::{Duration, Instant};
 
@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 
 use crate::domain::asks::{Asked, Asks, GateState};
 use crate::domain::gate::{Answer, Asker, Effect, Gate, Returned};
-use crate::domain::reading::{ActionWhenUnready, Cooldown, Failure, UnreadyActions};
+use crate::domain::reading::{Cooldown, Failure, UnreadyActions};
 use crate::domain::session::RequestId;
 use crate::domain::{Observation, ProviderError, ProviderId, ReadoutId, ReadoutResponse, SourceId, Timestamp};
 use crate::ports::outbound::{Provider, ProviderResponse, Reading};
@@ -44,15 +44,6 @@ pub(crate) struct Reader {
     /// The watchdog came due while the provider was unready: it asks as
     /// soon as the provider is ready.
     watchdog_due: bool,
-    /// Whether its policy queues: only then is a failed cut request sent again.
-    queues: bool,
-    /// How long a cut's request stays open after a failed read; `None` never.
-    retry_for: Option<Duration>,
-    /// When each open cut request was first sent.
-    sent_at: HashMap<RequestId, Instant>,
-    /// Cut requests a read failed, waiting to be sent again, oldest first,
-    /// each with what its last read gave.
-    open: VecDeque<(RequestId, Vec<(SourceId, Observation)>)>,
 }
 
 impl Reader {
@@ -74,34 +65,7 @@ impl Reader {
             askers: HashMap::new(),
             watchdog_at: None,
             watchdog_due: false,
-            queues: policy.on_cooldown == ActionWhenUnready::Queue || policy.on_busy == ActionWhenUnready::Queue,
-            retry_for: None,
-            sent_at: HashMap::new(),
-            open: VecDeque::new(),
         }
-    }
-
-    /// Send a cut's request again after a failed read, for up to `retry_for`
-    /// after it was first sent; zero never does.
-    pub(crate) fn retrying(mut self, retry_for: Duration) -> Self {
-        self.retry_for = (!retry_for.is_zero()).then_some(retry_for);
-        self
-    }
-
-    /// Whether a failed read should leave `request`, from `asker`, open.
-    fn keeps_open(&self, request: RequestId, asker: Asker, answer: &Answer<Vec<(SourceId, Observation)>>, now: Instant) -> bool {
-        let failed = match answer {
-            // Only samples answer it: a source unchanged or failed leaves it open.
-            Answer::Read(observations) => observations.iter().any(|(_, observation)| !matches!(observation, Observation::Samples(_))),
-            Answer::Done => false,
-            // A panic ends the retry.
-            Answer::Failed(Failure::Panicked(_) | Failure::Retired) => false,
-            Answer::Failed(_) => true,
-            // Skipped behind the queue: the queued read answers what it would (08).
-            Answer::Skipped(_) => false,
-        };
-        let within = |retry_for: Duration| self.sent_at.get(&request).is_some_and(|&sent| now < sent + retry_for);
-        failed && asker == Asker::Cut && self.queues && self.retry_for.is_some_and(within)
     }
 
     /// How long the watchdog leaves it unasked: `readout_interval`, and never
@@ -181,8 +145,7 @@ impl Readers {
             Err(message) => Returned::Panicked(message),
         };
         let effects = reader.gate.returned(returned, now);
-        self.apply(read.provider, effects, now, wall, &mut landed);
-        self.resend(read.provider, now, wall, &mut landed);
+        self.apply(read.provider, effects, wall, &mut landed);
         self.watchdog(read.provider, now, wall, &mut landed);
         landed
     }
@@ -214,43 +177,10 @@ impl Readers {
         let mut landed = Vec::new();
         for provider in self.providers() {
             let effects = self.readers.get_mut(&provider).expect("listed above").gate.advance(now);
-            self.apply(provider, effects, now, wall, &mut landed);
-            self.resend(provider, now, wall, &mut landed);
+            self.apply(provider, effects, wall, &mut landed);
             self.watchdog(provider, now, wall, &mut landed);
         }
         landed
-    }
-
-    /// Send `provider`'s oldest open request again if the provider can take
-    /// it, or let it land with its last read once `retry_for` has passed.
-    /// Not while a read is out past the timeout: it waits for that read.
-    fn resend(&mut self, provider: ProviderId, now: Instant, wall: Timestamp, landed: &mut Vec<ReadoutResponse>) {
-        loop {
-            let reader = self.readers.get_mut(&provider).expect("a known provider");
-            let Some((request, _)) = reader.open.front() else { return };
-            let request = *request;
-            let expired = match (reader.sent_at.get(&request), reader.retry_for) {
-                (Some(&sent), Some(retry_for)) => now >= sent + retry_for,
-                _ => true,
-            };
-            if expired {
-                let (_, last) = reader.open.pop_front().expect("checked");
-                reader.askers.remove(&request);
-                reader.sent_at.remove(&request);
-                landed.push(response_of(request, last));
-                continue;
-            }
-            if reader.gate.state_at(now) == GateState::Failing && !reader.gate.is_final() {
-                return;
-            }
-            if reader.gate.queued().is_some() {
-                return;
-            }
-            reader.open.pop_front();
-            let effects = reader.gate.request(request, Asker::Cut, now);
-            self.apply(provider, effects, now, wall, landed);
-            return;
-        }
     }
 
     /// Whether `request` was sent and has been answered.
@@ -262,13 +192,7 @@ impl Readers {
     pub(crate) fn wake_at(&self) -> Option<Instant> {
         self.readers
             .values()
-            .flat_map(|reader| {
-                let give_up = reader
-                    .open
-                    .front()
-                    .and_then(|(request, _)| Some(*reader.sent_at.get(request)? + reader.retry_for?));
-                [reader.gate.wake_at(), reader.watchdog_at, give_up]
-            })
+            .flat_map(|reader| [reader.gate.wake_at(), reader.watchdog_at])
             .flatten()
             .min()
     }
@@ -305,18 +229,15 @@ impl Readers {
         let interval = self.interval;
         let reader = self.readers.get_mut(&provider).expect("only a known provider is asked");
         reader.askers.insert(request, asker);
-        if asker == Asker::Cut {
-            reader.sent_at.insert(request, now);
-        }
         reader.watchdog_at = Some(now + reader.watchdog_period(interval));
         reader.watchdog_due = false;
         let effects = reader.gate.request(request, asker, now);
-        self.apply(provider, effects, now, wall, landed);
+        self.apply(provider, effects, wall, landed);
         request
     }
 
     /// Carry out `provider`'s gate `effects`, collecting readouts that land.
-    fn apply(&mut self, provider: ProviderId, effects: Effects, now: Instant, wall: Timestamp, landed: &mut Vec<ReadoutResponse>) {
+    fn apply(&mut self, provider: ProviderId, effects: Effects, wall: Timestamp, landed: &mut Vec<ReadoutResponse>) {
         for effect in effects {
             match effect {
                 Effect::Start(request) => {
@@ -324,17 +245,15 @@ impl Readers {
                     asks.transition();
                     asks.started(request, wall);
                     if let Some(effects) = self.start(provider) {
-                        self.apply(provider, effects, now, wall, landed);
+                        self.apply(provider, effects, wall, landed);
                     }
                 }
                 Effect::Answer(request, answer) => {
-                    let fresh = ReadoutId(self.next_request);
                     let reader = self.readers.get_mut(&provider).expect("known");
                     let Some(asker) = reader.askers.remove(&request) else {
                         debug_assert!(false, "{request:?} answered twice, or never sent");
                         continue;
                     };
-                    let keep_open = reader.keeps_open(request, asker, &answer, now);
                     if matches!(answer, Answer::Failed(Failure::TimedOut)) {
                         reader.asks.transition();
                     }
@@ -355,17 +274,7 @@ impl Readers {
                             .collect(),
                         Answer::Done => Vec::new(),
                     };
-                    if keep_open {
-                        // The failure lands under an id of its own; the request
-                        // stays open and is sent again once the provider is ready.
-                        reader.askers.insert(request, asker);
-                        reader.open.push_back((request, observations.clone()));
-                        self.next_request += 1;
-                        landed.push(response_of(fresh, observations));
-                    } else {
-                        reader.sent_at.remove(&request);
-                        landed.push(response_of(request, observations));
-                    }
+                    landed.push(response_of(request, observations));
                 }
             }
         }
@@ -794,117 +703,24 @@ mod tests {
         }
     }
 
-    fn flaky(fails: usize, policy: UnreadyActions, retry_for: Duration) -> (Readers, Returns) {
+    fn flaky(fails: usize, policy: UnreadyActions) -> (Readers, Returns) {
         let provider = Flaky { fails, reads: std::sync::Arc::default() };
-        let reader = Reader::new(Box::new(provider), vec![source(0)], policy, TIMEOUT).retrying(retry_for);
+        let reader = Reader::new(Box::new(provider), vec![source(0)], policy, TIMEOUT);
         Readers::new(HashMap::from([(ProviderId(1), reader)]), Duration::from_secs(60))
-    }
-
-    /// Hand back reads as they return, at `at` ms, until `request` lands.
-    fn until_landed(readers: &mut Readers, returns: &mut Returns, t0: Instant, request: RequestId) -> (ReadoutResponse, Vec<ReadoutResponse>) {
-        let mut others = Vec::new();
-        for at in 1..200 {
-            let read = returns.blocking_recv().expect("a read returns");
-            for response in readers.returned(read, after(t0, at), stamp(at as i64)) {
-                if response.id == request {
-                    return (response, others);
-                }
-                others.push(response);
-            }
-        }
-        panic!("request {request:?} never landed");
-    }
-
-    fn samples_of(response: &ReadoutResponse) -> bool {
-        response.samples().count() == 1
-    }
-
-    /// AC/MEAS-92
-    #[test]
-    fn under_queue_a_failed_read_does_not_answer_the_request_and_it_is_sent_again() {
-        let (mut readers, mut returns) = flaky(2, UnreadyActions::QUEUE, Duration::from_secs(30));
-        let t0 = Instant::now();
-        let (request, landed) = readers.ask(ProviderId(1), stamp(0), t0, stamp(0));
-        let request = request.expect("a request");
-        assert!(landed.is_empty());
-        let (answer, failures) = until_landed(&mut readers, &mut returns, t0, request);
-        assert!(samples_of(&answer), "answered by the read with samples: {answer:?}");
-        assert_eq!(failures.len(), 2, "each failure lands under an id of its own");
-        assert!(failures.iter().all(|failure| failure.id != request && !samples_of(failure)));
-    }
-
-    /// AC/MEAS-94
-    #[test]
-    fn an_open_request_gives_up_after_retry_for() {
-        let (mut readers, mut returns) = flaky(usize::MAX, UnreadyActions::QUEUE, Duration::from_millis(5));
-        let t0 = Instant::now();
-        let request = readers.ask(ProviderId(1), stamp(0), t0, stamp(0)).0.expect("a request");
-        let (answer, _) = until_landed(&mut readers, &mut returns, t0, request);
-        assert!(!samples_of(&answer), "it lands with the last failure");
     }
 
     /// AC/MEAS-96
     #[test]
-    fn under_skip_a_failed_read_answers_its_request() {
-        let (mut readers, mut returns) = flaky(1, UnreadyActions::SKIP, Duration::from_secs(30));
-        let t0 = Instant::now();
-        let request = readers.ask(ProviderId(1), stamp(0), t0, stamp(0)).0.expect("a request");
-        let read = returns.blocking_recv().expect("the read returns");
-        let landed = readers.returned(read, after(t0, 1), stamp(1));
-        assert_eq!(landed.iter().map(|response| response.id).collect::<Vec<_>>(), vec![request]);
-    }
-
-    /// AC/MEAS-95
-    #[test]
-    fn a_panic_ends_the_retry() {
-        let provider = Scripted { quiet: 0, panics: true, reads: std::sync::Arc::default(), cooldown: Cooldown::After(Duration::ZERO) };
-        let reader = Reader::new(Box::new(provider), vec![source(0)], UnreadyActions::QUEUE, TIMEOUT).retrying(Duration::from_secs(30));
-        let (mut readers, mut returns) = Readers::new(HashMap::from([(ProviderId(1), reader)]), Duration::from_secs(60));
-        let t0 = Instant::now();
-        let request = readers.ask(ProviderId(1), stamp(0), t0, stamp(0)).0.expect("a request");
-        let read = returns.blocking_recv().expect("the read returns");
-        let landed = readers.returned(read, after(t0, 1), stamp(1));
-        let answer = landed.into_iter().find(|response| response.id == request).expect("answered at once");
-        assert!(answer.into_outcomes().all(|(_, o)| matches!(o, Observation::Failed(Failure::Panicked(_)))));
-    }
-
-    /// AC/MEAS-93
-    #[test]
-    fn an_open_request_waits_for_a_hung_read_to_return_then_is_sent_again() {
-        let (release, wait) = std::sync::mpsc::channel();
-        let reads = std::sync::Arc::default();
-        let provider = Hanging { release: Some(wait), reads: std::sync::Arc::clone(&reads), cooldown: Cooldown::After(Duration::ZERO) };
-        let reader = Reader::new(Box::new(provider), vec![source(0)], UnreadyActions::QUEUE, TIMEOUT).retrying(Duration::from_secs(30));
-        let (mut readers, mut returns) = Readers::new(HashMap::from([(ProviderId(1), reader)]), Duration::from_secs(60));
-        let t0 = Instant::now();
-        let request = readers.ask(ProviderId(1), stamp(0), t0, stamp(0)).0.expect("a request");
-        while reads_of(&reads) == 0 {
-            std::thread::yield_now();
+    fn under_either_policy_a_failed_read_answers_its_request() {
+        for policy in [UnreadyActions::QUEUE, UnreadyActions::SKIP] {
+            let (mut readers, mut returns) = flaky(1, policy);
+            let t0 = Instant::now();
+            let request = readers.ask(ProviderId(1), stamp(0), t0, stamp(0)).0.expect("a request");
+            let read = returns.blocking_recv().expect("the read returns");
+            let landed = readers.returned(read, after(t0, 1), stamp(1));
+            assert_eq!(landed.iter().map(|response| response.id).collect::<Vec<_>>(), vec![request]);
+            assert!(landed[0].samples().next().is_none(), "it lands with the failure");
+            assert!(readers.advance(after(t0, 100), stamp(100)).is_empty(), "nothing is sent again");
         }
-        // Past the timeout: the request is not answered, and not sent again.
-        for at in [2100u64, 2200, 3000] {
-            let landed = readers.advance(after(t0, at), stamp(at as i64));
-            assert!(landed.iter().all(|response| response.id != request), "{landed:?}");
-        }
-        assert_eq!(reads_of(&reads), 1, "no read while the hung one is out");
-        release.send(()).unwrap();
-        let (answer, _) = until_landed(&mut readers, &mut returns, t0, request);
-        assert!(samples_of(&answer));
-        assert_eq!(reads_of(&reads), 2);
-    }
-
-    /// AC/MEAS-92
-    #[test]
-    fn under_queue_a_read_with_nothing_new_leaves_the_request_open_too() {
-        let reads = std::sync::Arc::default();
-        let provider = Scripted { quiet: 2, panics: false, reads: std::sync::Arc::clone(&reads), cooldown: Cooldown::After(Duration::ZERO) };
-        let reader = Reader::new(Box::new(provider), vec![source(0)], UnreadyActions::QUEUE, TIMEOUT).retrying(Duration::from_secs(30));
-        let (mut readers, mut returns) = Readers::new(HashMap::from([(ProviderId(1), reader)]), Duration::from_secs(60));
-        let t0 = Instant::now();
-        let request = readers.ask(ProviderId(1), stamp(0), t0, stamp(0)).0.expect("a request");
-        let (answer, quiet) = until_landed(&mut readers, &mut returns, t0, request);
-        assert!(samples_of(&answer), "answered by the first read with samples");
-        assert_eq!(quiet.len(), 2);
-        assert_eq!(reads_of(&reads), 3);
     }
 }

@@ -50,6 +50,8 @@ enum Behaviour {
     Answer,
     /// Wait for the test to release it.
     Block,
+    /// Fail every read with `Unavailable`.
+    Fail,
     Panic,
 }
 
@@ -139,6 +141,7 @@ impl Provider for Test {
                     .unwrap()
                     .recv();
             }
+            Behaviour::Fail => return Err(ProviderError::Unavailable("the driver is busy".to_owned())),
             Behaviour::Panic => panic!("the driver exploded"),
         }
         let mut response = ProviderResponse::new();
@@ -215,10 +218,7 @@ async fn observed(events: &mut Subscription) -> BTreeMap<SourceId, Vec<Observati
 async fn a_read_that_hangs_delays_nothing_else() {
     let (hanging, _release) = Test::new(POWER, Behaviour::Answer).blocking();
     let grid_provider = Test::new(GRID, Behaviour::Answer);
-    // Open requests wait for the hung read up to retry_for, then give up.
-    let retry_for = TIMEOUT * 3;
-    let config = TrackerConfig { fetch: FetchPolicy { retry_for, ..config().fetch }, ..config() };
-    let tracker = tracker_with(hanging, grid_provider, config);
+    let tracker = tracker(hanging, grid_provider);
     let mut events = tracker.subscribe();
     let mut cuts = tracker.subscribe();
 
@@ -234,13 +234,13 @@ async fn a_read_that_hangs_delays_nothing_else() {
 
     tracker.stop_span(span, Work::default());
     tracker.finish().await.expect("the session finishes despite the hung read");
-    assert!(began.elapsed() < retry_for + TIMEOUT * 5, "nothing waited past retry_for");
+    assert!(began.elapsed() < TIMEOUT * 5, "nothing waited past the timeouts");
 
     let observed = observed(&mut events).await;
     let power = &observed[&source(POWER)];
     assert_eq!(power[0], Observation::Failed(Failure::TimedOut), "the opening read timed out");
-    // Each failed read lands as it happens; each open request gives up with
-    // its last at retry_for. Nothing was read while the read hung.
+    // Every request after the hung one fails with it. Nothing was read while
+    // the read hung.
     assert!(
         power[1..].iter().all(|o| matches!(o, Observation::Failed(Failure::Stalled | Failure::TimedOut))),
         "the hung read is still out: {power:?}"
@@ -361,8 +361,6 @@ fn a_zero_timeout_or_a_policy_for_an_unknown_provider_is_refused() {
     };
     assert_eq!(zero.validate(), Err(ConfigError::ZeroFetchTimeout));
     assert_eq!(FetchPolicy::default().timeout, Duration::from_secs(10));
-    // AC/MEAS-94
-    assert_eq!(FetchPolicy::default().retry_for, Duration::from_secs(30));
 
     let no_interval = TrackerConfig { readout_interval: Duration::ZERO, ..config() };
     assert_eq!(no_interval.validate(), Err(ConfigError::ZeroReadoutInterval));
@@ -525,6 +523,40 @@ async fn finishing_waits_no_longer_than_the_timeout_for_a_provider_that_skips() 
     let began = Instant::now();
     tracker.finish().await.expect("the session finishes despite the hung read");
     assert!(began.elapsed() < TIMEOUT + Duration::from_millis(50), "{:?}", began.elapsed());
+}
+
+/// AC/ENG-27
+#[tokio::test]
+async fn finishing_waits_no_longer_than_the_timeout_for_a_provider_that_queues() {
+    let (hanging, _release) = Test::new(POWER, Behaviour::Answer).blocking();
+    let tracker = tracker(hanging, Test::new(GRID, Behaviour::Answer));
+
+    let span = tracker.start_span("work", None, SourceSelection::All);
+    tracker.stop_span(span, Work::default());
+    let began = Instant::now();
+    tracker.finish().await.expect("the session finishes despite the hung read");
+    let bound = TIMEOUT + TIMEOUT;
+    assert!(began.elapsed() < bound + Duration::from_millis(200), "{:?} against {bound:?}", began.elapsed());
+}
+
+/// AC/MEAS-96
+#[tokio::test]
+async fn under_queue_a_failed_read_answers_its_request() {
+    let failing = Test::new(POWER, Behaviour::Fail);
+    let reads = Arc::clone(&failing.reads);
+    let tracker = tracker(failing, Test::new(GRID, Behaviour::Answer));
+    let mut events = tracker.subscribe();
+
+    let span = tracker.start_span("work", None, SourceSelection::All);
+    tracker.stop_span(span, Work::default());
+    let began = Instant::now();
+    tracker.finish().await.expect("the session finishes");
+    assert!(began.elapsed() < TIMEOUT, "nothing waited on a failed read: {:?}", began.elapsed());
+
+    // The opening cut, the stop and the finish ask at most once each.
+    assert!(reads.load(Ordering::SeqCst) <= 3, "no request was sent again: {} reads", reads.load(Ordering::SeqCst));
+    let power = &observed(&mut events).await[&source(POWER)];
+    assert!(power.iter().all(|o| matches!(o, Observation::Failed(Failure::Provider(_)))), "{power:?}");
 }
 
 /// The provider each `ReadoutLanded` came from, in the order they landed,
