@@ -177,19 +177,20 @@ fn candidate_of(service: KeyedService) -> &'static str {
     }
 }
 
-/// A key is set, yet the candidate it unlocks declined.
+/// A key is set, yet the candidate it unlocks declined, and why.
 fn warnings(candidates: &[CandidateOutcome], keys: &Keys) -> Vec<String> {
     keys.iter()
-        .filter(|(service, _)| {
-            candidates.iter().any(|outcome| outcome.name == candidate_of(**service) && outcome.verdict == Verdict::Declined)
-        })
-        .map(|(service, (key, _))| {
-            format!(
-                "! {} key {} found, but {} is unavailable\n    run `carbontracker init` to fix the key",
+        .filter_map(|(service, (key, _))| {
+            let reason = candidates.iter().find_map(|outcome| match &outcome.verdict {
+                Verdict::Declined(reason) if outcome.name == candidate_of(*service) => Some(reason),
+                _ => None,
+            })?;
+            Some(format!(
+                "! {} key {} found, but {} is unavailable: {reason}\n    run `carbontracker init` to fix the key",
                 service.name(),
                 key.hint(),
                 candidate_of(*service)
-            )
+            ))
         })
         .collect()
 }
@@ -231,9 +232,12 @@ mod tests {
     /// AC/FE-61
     #[test]
     fn a_key_whose_candidate_declined_is_warned_about() {
-        let candidates = [outcome("electricity-maps", Verdict::Declined)];
+        let refused = Verdict::Declined("access denied: Electricity Maps refused the key (401 Unauthorized)".into());
+        let candidates = [outcome("electricity-maps", refused)];
         let [warning] = warnings(&candidates, &keyed()).try_into().unwrap();
         assert!(warning.starts_with("! electricity_maps key …1234 found, but electricity-maps is unavailable"));
+        assert!(warning.contains("refused the key (401 Unauthorized)"), "{warning}");
+        assert!(warning.contains("carbontracker init"), "{warning}");
         assert!(!warning.contains("secret"));
     }
 
@@ -244,7 +248,7 @@ mod tests {
         assert!(warnings(&serving, &keyed()).is_empty());
         let pinned = [outcome("static", Verdict::Serving(vec![]))];
         assert!(warnings(&pinned, &keyed()).is_empty());
-        let declined = [outcome("electricity-maps", Verdict::Declined)];
+        let declined = [outcome("electricity-maps", Verdict::Declined("no Electricity Maps key".into()))];
         assert!(warnings(&declined, &Keys::new()).is_empty());
     }
 

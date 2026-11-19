@@ -11,7 +11,7 @@ use carbontracker::{
 use crate::application::resolution::{ProbeProgress, Resolution};
 use crate::domain::config::Measure;
 use crate::domain::verdict::{CandidateOutcome, Coverage, Verdict};
-use crate::ports::Outcome;
+use crate::ports::Probed;
 
 /// Chain walk state: covered slots and per-candidate outcomes.
 pub(crate) struct Chain<'a> {
@@ -58,10 +58,13 @@ impl<'a> Chain<'a> {
     }
 
     /// Keep the slots this candidate newly covers; drop it entirely if none.
-    pub(crate) fn take(&mut self, id: ProviderId, name: &'static str, outcome: Option<Outcome>) {
-        let Some(outcome) = outcome else {
-            self.record(name, Verdict::Declined);
-            return;
+    pub(crate) fn take(&mut self, id: ProviderId, name: &'static str, outcome: Probed) {
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(reason) => {
+                self.record(name, Verdict::Declined(reason));
+                return;
+            }
         };
 
         let offered = outcome.descriptions.len();

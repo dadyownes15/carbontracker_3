@@ -3,4 +3,4 @@
 
 mod outcome;
 
-pub(crate) use outcome::Outcome;
+pub(crate) use outcome::{Outcome, Probed};

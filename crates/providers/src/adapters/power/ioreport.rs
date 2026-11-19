@@ -83,9 +83,13 @@ pub(crate) struct IoReport<S> {
 
 impl<S: Snapshots> IoReport<S> {
     /// The provider over `snapshots`, with its sources: one per domain the
-    /// first snapshot has a channel for. `None` when it has none.
-    pub(crate) fn new(id: ProviderId, device_name: &str, mut snapshots: S) -> Option<(Self, Vec<(SourceId, SourceDescription)>)> {
-        let found = nanojoules(&snapshots.take().ok()?);
+    /// first snapshot has a channel for. Declined when it has none.
+    pub(crate) fn new(
+        id: ProviderId,
+        device_name: &str,
+        mut snapshots: S,
+    ) -> crate::ports::Probed<(Self, Vec<(SourceId, SourceDescription)>)> {
+        let found = nanojoules(&snapshots.take().map_err(|error| format!("IOReport: {error}"))?);
         let mut domains = Vec::new();
         let mut descriptions = Vec::new();
         for (slot, domain) in IOREPORT_DOMAINS.into_iter().enumerate() {
@@ -106,11 +110,11 @@ impl<S: Snapshots> IoReport<S> {
             ));
         }
         if domains.is_empty() {
-            return None;
+            return Err("IOReport has no CPU, GPU, ANE or RAM energy channel".to_owned());
         }
         // The totals have no known wrap: a decrease is a restart.
         let totals = domains.iter().map(|&(domain, _)| (domain, Accumulator::new(None))).collect();
-        Some((Self { snapshots, domains, totals }, descriptions))
+        Ok((Self { snapshots, domains, totals }, descriptions))
     }
 }
 
@@ -135,13 +139,13 @@ impl<S: Snapshots> Provider for IoReport<S> {
     }
 }
 
-/// Finds the energy model and serves its counters; `None` on a Mac without
+/// Finds the energy model and serves its counters; declined on a Mac without
 /// one (Intel) or when IOReport refuses.
 #[cfg(target_os = "macos")]
-pub(crate) fn probe_ioreport(id: ProviderId) -> Option<crate::ports::Outcome> {
+pub(crate) fn probe_ioreport(id: ProviderId) -> crate::ports::Probed {
     let snapshots = macos::Subscription::energy_model()?;
     let (provider, descriptions) = IoReport::new(id, &crate::adapters::system::cpu::device_name(), snapshots)?;
-    Some(crate::ports::Outcome { descriptions, provider: Box::new(provider) })
+    Ok(crate::ports::Outcome { descriptions, provider: Box::new(provider) })
 }
 
 #[cfg(target_os = "macos")]
@@ -216,14 +220,14 @@ mod macos {
     unsafe impl Send for Subscription {}
 
     impl Subscription {
-        pub(crate) fn energy_model() -> Option<Self> {
+        pub(crate) fn energy_model() -> Result<Self, String> {
             let group = CFString::from_static_string("Energy Model");
             // SAFETY: plain IOReport and CoreFoundation calls; every object
             // created here is released here or owned by the subscription.
             unsafe {
                 let all = IOReportCopyChannelsInGroup(group.as_concrete_TypeRef(), null(), 0, 0, 0);
                 if all.is_null() {
-                    return None;
+                    return Err("IOReport has no Energy Model group".to_owned());
                 }
                 let used = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
                 for item in items(all) {
@@ -244,9 +248,9 @@ mod macos {
                 }
                 if subscription.is_null() {
                     CFRelease(channels as CFTypeRef);
-                    return None;
+                    return Err("IOReport refused the subscription".to_owned());
                 }
-                Some(Self { subscription, channels })
+                Ok(Self { subscription, channels })
             }
         }
     }
@@ -367,12 +371,15 @@ mod tests {
         assert_eq!(served, IOREPORT_DOMAINS.map(counted));
     }
 
-    /// AC/PROV-51
+    /// AC/PROV-51 AC/PROV-53
     #[test]
     fn a_chip_without_an_energy_model_is_not_served() {
         let none = Scripted(vec![Ok(vec![channel("EACC_CPU0", "mJ", 1)])]);
-        assert!(IoReport::new(ID, "Apple M2", none).is_none());
-        assert!(IoReport::new(ID, "Apple M2", Scripted(vec![Err(ProviderError::Unavailable("no IOReport".into()))])).is_none());
+        let reason = IoReport::new(ID, "Apple M2", none).err().expect("declines");
+        assert!(reason.contains("no CPU, GPU, ANE or RAM energy channel"), "{reason:?}");
+        let refused = Scripted(vec![Err(ProviderError::Unavailable("no IOReport".into()))]);
+        let reason = IoReport::new(ID, "Apple M2", refused).err().expect("declines");
+        assert!(reason.contains("no IOReport"), "{reason:?}");
     }
 
     /// AC/PROV-50

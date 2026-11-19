@@ -8,7 +8,7 @@ use carbontracker::{Fidelity, GridLocation, ProviderId};
 
 use crate::adapters::intensity::constant::constant_intensity;
 use crate::domain::location::{CountryCode, Location};
-use crate::ports::Outcome;
+use crate::ports::{Outcome, Probed};
 
 /// `carbon-intensities.csv`: Our World in Data, carbon
 /// intensity of electricity (lifecycle, gCO2eq/kWh), CC BY. Each row keeps
@@ -36,11 +36,12 @@ pub(crate) fn country_intensity(country: CountryCode) -> Option<f64> {
 /// Serves any location that names a country in the table. Coordinates, data
 /// centres and no location decline: there is no way to place them in a
 /// country.
-pub(crate) fn probe_country_average(id: ProviderId, location: Option<&Location>) -> Option<(Outcome, f64)> {
-    let country = location?.country()?;
-    let g_per_kwh = country_intensity(country)?;
+pub(crate) fn probe_country_average(id: ProviderId, location: Option<&Location>) -> Probed<(Outcome, f64)> {
+    let location = location.ok_or("no location")?;
+    let country = location.country().ok_or_else(|| format!("{location} names no country"))?;
+    let g_per_kwh = country_intensity(country).ok_or_else(|| format!("no figure for {country} in the table"))?;
     let described = GridLocation::Country { country_code: country.to_string() };
-    Some((constant_intensity(id, g_per_kwh, described, Fidelity::Modelled), g_per_kwh))
+    Ok((constant_intensity(id, g_per_kwh, described, Fidelity::Modelled), g_per_kwh))
 }
 
 #[cfg(test)]
@@ -52,7 +53,7 @@ mod tests {
     const ID: ProviderId = ProviderId(90);
 
     fn served(location: Location) -> Option<SourceDescription> {
-        let (outcome, _) = probe_country_average(ID, Some(&location))?;
+        let (outcome, _) = probe_country_average(ID, Some(&location)).ok()?;
         outcome.descriptions.into_iter().next().map(|(_, description)| description)
     }
 
@@ -90,6 +91,17 @@ mod tests {
         ] {
             assert_eq!(served(location.clone()), None, "{location}");
         }
-        assert!(probe_country_average(ID, None).is_none());
+        assert!(probe_country_average(ID, None).is_err());
+    }
+
+    /// AC/PROV-53
+    #[test]
+    fn a_decline_names_what_was_missing() {
+        let reason = |location: Option<&Location>| probe_country_average(ID, location).err().expect("declines");
+        assert_eq!(reason(None), "no location");
+        let coordinates = Location::Stated(GridLocation::Coordinates { latitude: 55.0, longitude: 12.0 });
+        assert!(reason(Some(&coordinates)).contains("names no country"), "{}", reason(Some(&coordinates)));
+        let unknown = Location::Stated(GridLocation::Country { country_code: "ZZ".into() });
+        assert!(reason(Some(&unknown)).contains("ZZ"), "{}", reason(Some(&unknown)));
     }
 }

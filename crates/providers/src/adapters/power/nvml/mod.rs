@@ -10,7 +10,7 @@ use std::sync::Arc;
 use nvml_wrapper::enums::device::DeviceArchitecture;
 
 use crate::domain::counter::Accumulator;
-use crate::ports::Outcome;
+use crate::ports::{Outcome, Probed};
 use carbontracker::{Fidelity, PowerDomain, PowerScope, ProviderId, SampleKind, SourceDescription, SourceId};
 
 use energy::NvmlEnergy;
@@ -37,8 +37,8 @@ impl Board for nvml_wrapper::Nvml {
 
 /// What probing NVML found: the GPUs with an energy counter, and the rest.
 pub(crate) struct NvmlOutcomes {
-    pub(crate) energy: Option<Outcome>,
-    pub(crate) power: Option<Outcome>,
+    pub(crate) energy: Probed,
+    pub(crate) power: Probed,
 }
 
 /// What one look at the driver finds of a GPU.
@@ -55,12 +55,21 @@ pub(crate) struct Gpu {
 }
 
 /// One source per GPU, or per GPU running one of `processes` if given.
-/// `libnvidia-ml` is dlopened, so this finds nothing where there is no
-/// driver.
+/// `libnvidia-ml` is dlopened, so where there is no driver both decline
+/// with the loader's error.
 pub(crate) fn probe_nvml(energy_id: ProviderId, power_id: ProviderId, processes: Option<&[u32]>) -> NvmlOutcomes {
-    let none = || NvmlOutcomes { energy: None, power: None };
-    let Ok(nvml) = nvml_wrapper::Nvml::init() else { return none() };
-    let Ok(count) = nvml.device_count() else { return none() };
+    let failed = |error: nvml_wrapper::error::NvmlError| {
+        let reason = format!("NVML: {error}");
+        NvmlOutcomes { energy: Err(reason.clone()), power: Err(reason) }
+    };
+    let nvml = match nvml_wrapper::Nvml::init() {
+        Ok(nvml) => nvml,
+        Err(error) => return failed(error),
+    };
+    let count = match nvml.device_count() {
+        Ok(count) => count,
+        Err(error) => return failed(error),
+    };
 
     let mut gpus = Vec::new();
     for index in 0..count {
@@ -98,11 +107,23 @@ pub(crate) fn split(
     processes: Option<&[u32]>,
 ) -> NvmlOutcomes {
     // Skip cards without a queryable power sensor (some consumer/virtualised boards).
-    let served = gpus
-        .iter()
-        .filter(|gpu| gpu.has_power)
-        .filter(|gpu| processes.is_none_or(|wanted| runs_any(&gpu.running, wanted)));
-    let (energy, power): (Vec<&Gpu>, Vec<&Gpu>) = served.partition(|gpu| gpu.has_energy);
+    let with_power: Vec<&Gpu> = gpus.iter().filter(|gpu| gpu.has_power).collect();
+    let served: Vec<&Gpu> =
+        with_power.iter().copied().filter(|gpu| processes.is_none_or(|wanted| runs_any(&gpu.running, wanted))).collect();
+    let (energy, power): (Vec<&Gpu>, Vec<&Gpu>) = served.iter().partition(|gpu| gpu.has_energy);
+
+    // Why a group is empty: the first of these that holds.
+    let missing = |none_in_group: &str| -> String {
+        if gpus.is_empty() {
+            "NVML reports no GPU".to_owned()
+        } else if with_power.is_empty() {
+            "no GPU reports its power".to_owned()
+        } else if served.is_empty() {
+            "no GPU runs a measured process".to_owned()
+        } else {
+            none_in_group.to_owned()
+        }
+    };
 
     let describe = |id: ProviderId, gpus: &[&Gpu], kind: SampleKind| -> Vec<(SourceId, SourceDescription)> {
         gpus.iter()
@@ -119,23 +140,27 @@ pub(crate) fn split(
             .collect()
     };
 
-    let energy_outcome = (!energy.is_empty()).then(|| {
+    let energy_outcome = if energy.is_empty() {
+        Err(missing("no GPU has an energy counter"))
+    } else {
         let counters = energy
             .iter()
             .map(|gpu| (gpu.index, SourceId::new(energy_id, gpu.index as u16), Accumulator::new(None)))
             .collect();
-        Outcome {
+        Ok(Outcome {
             descriptions: describe(energy_id, &energy, SampleKind::Total),
             provider: Box::new(NvmlEnergy::new(Arc::clone(&board), counters)),
-        }
-    });
-    let power_outcome = (!power.is_empty()).then(|| {
+        })
+    };
+    let power_outcome = if power.is_empty() {
+        Err(missing("every GPU has an energy counter"))
+    } else {
         let gpus = power.iter().map(|gpu| (gpu.index, SourceId::new(power_id, gpu.index as u16), gpu.averages)).collect();
-        Outcome {
+        Ok(Outcome {
             descriptions: describe(power_id, &power, SampleKind::Instant),
             provider: Box::new(NvmlPower::new(Arc::clone(&board), gpus)),
-        }
-    });
+        })
+    };
     NvmlOutcomes { energy: energy_outcome, power: power_outcome }
 }
 
@@ -224,8 +249,8 @@ mod tests {
     }
 
     /// Each served GPU's index and sample kind.
-    fn served(outcome: Option<&Outcome>) -> Vec<(u16, SampleKind)> {
-        let Some(outcome) = outcome else { return Vec::new() };
+    fn served(outcome: Result<&Outcome, &String>) -> Vec<(u16, SampleKind)> {
+        let Ok(outcome) = outcome else { return Vec::new() };
         outcome
             .descriptions
             .iter()
@@ -259,5 +284,19 @@ mod tests {
 
         assert_eq!(served(found.energy.as_ref()), [(0, SampleKind::Total)]);
         assert_eq!(served(found.power.as_ref()), [(2, SampleKind::Instant)]);
+    }
+
+    /// AC/PROV-53
+    #[test]
+    fn a_decline_says_which_gpus_were_missing() {
+        let decline = |gpus: &[Gpu], processes: Option<&[u32]>| {
+            let found = split(Arc::new(fake::FakeBoard::default()), gpus, ENERGY, POWER, processes);
+            (found.energy.err().unwrap_or_default(), found.power.err().unwrap_or_default())
+        };
+        assert_eq!(decline(&[], None), ("NVML reports no GPU".to_owned(), "NVML reports no GPU".to_owned()));
+        assert_eq!(decline(&[gpu(0, true, false, &[])], None).0, "no GPU reports its power");
+        assert_eq!(decline(&[gpu(0, true, true, &[7])], Some(&[42])).0, "no GPU runs a measured process");
+        assert_eq!(decline(&[gpu(0, true, true, &[])], None).1, "every GPU has an energy counter");
+        assert_eq!(decline(&[gpu(0, false, true, &[])], None).0, "no GPU has an energy counter");
     }
 }

@@ -8,10 +8,20 @@ pub(crate) const IP_GEOLOCATION: &str = "ip-geolocation";
 pub(crate) const IP_GEOLOCATION_URL: &str = "https://ipinfo.io/json";
 
 /// One request, no retry; the client's timeout bounds it. Any failure is no
-/// estimate.
-pub(crate) async fn estimate_by_ip(client: &reqwest::Client, url: &str) -> Option<Estimate> {
-    let body = client.get(url).send().await.ok()?.error_for_status().ok()?.text().await.ok()?;
-    parse_ipinfo(&body)
+/// estimate, and its reason.
+pub(crate) async fn estimate_by_ip(client: &reqwest::Client, url: &str) -> Result<Estimate, String> {
+    let failed = |error: reqwest::Error| {
+        if error.is_timeout() {
+            "ipinfo.io timed out".to_owned()
+        } else if let Some(status) = error.status() {
+            format!("ipinfo.io answered {status}")
+        } else {
+            format!("ipinfo.io: {error}")
+        }
+    };
+    let response = client.get(url).send().await.map_err(failed)?.error_for_status().map_err(failed)?;
+    let body = response.text().await.map_err(failed)?;
+    parse_ipinfo(&body).ok_or_else(|| "ipinfo.io gave no country".to_owned())
 }
 
 /// `{"country": "DK", "loc": "55.6759,12.5655", …}`. An answer without a

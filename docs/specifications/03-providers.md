@@ -72,6 +72,11 @@ A `Resolution` says what was chosen and what was not, with a `Verdict` per
 `CandidateOutcome`, for a frontend to show. `resolve()` turns it into the
 `Sources` a tracker starts over and the `Forecaster` for the grid it bills. <!-- AC/PROV-12 -->
 
+**A declined candidate says why.** `Verdict::Declined` carries the reason the
+probe gave: the refusal or error it met, or what it looked for and did not
+find, e.g. `Electricity Maps refused the key (401 Unauthorized)`. A user can
+then tell a missing driver from a refused key without rerunning anything. <!-- AC/PROV-53 -->
+
 **A registry builds providers because probing must read.** A probe confirms
 that a candidate can answer by reading it once. The provider it builds keeps
 whatever the probe set up or learned: a connection, a sampler thread, a driver

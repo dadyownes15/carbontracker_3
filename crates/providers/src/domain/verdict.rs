@@ -17,7 +17,8 @@ pub enum Verdict {
     /// Chosen, and serving these series.
     Serving(Vec<String>),
     /// Probed, and had nothing to offer: no counter, no credential, no driver.
-    Declined,
+    /// Holds the reason the probe gave.
+    Declined(String),
     /// Not probed; every slot it could fill was already taken.
     Covered,
     /// Not probed. Nothing it offers was asked for.
@@ -28,7 +29,7 @@ impl fmt::Display for Verdict {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Serving(series) => write!(formatter, "serving {}", series.join(", ")),
-            Self::Declined => formatter.write_str("not available on this host"),
+            Self::Declined(reason) => write!(formatter, "declined: {reason}"),
             Self::Covered => formatter.write_str("covered by a better candidate"),
             Self::NotWanted => formatter.write_str("not asked for"),
         }
@@ -53,5 +54,17 @@ impl Coverage {
             }
             SourceDescription::Intensity { location, .. } => Self::Intensity { location: location.clone() },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// AC/PROV-53
+    #[test]
+    fn a_decline_shows_its_reason() {
+        let declined = Verdict::Declined("NVML: a libloading error occurred".to_owned());
+        assert_eq!(declined.to_string(), "declined: NVML: a libloading error occurred");
     }
 }
