@@ -70,3 +70,4 @@ down the furniture rather than the promise.
 | [09](09-profiling.md) | Spans | The timeline, attribution, settling, reports |
 | [10](10-python.md) | `carbontracker`, the package | What users call: `CarbonTracker`, spans, `track`, `report` |
 | [11](11-profiler.md) | `carbontracker`, the package in profiler mode | Waiting for reads, the baseline, the profiler's settings and report |
+| [12](12-output.md) | What a run prints | The kinds of line, the verbosities, and which warnings print at every one |
