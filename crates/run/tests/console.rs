@@ -8,9 +8,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use carbontracker::{
-    CatalogReport, Failure, Fidelity, Observation, PowerDomain, PowerScope, ProviderError, ProviderId, ReadoutId,
-    Sample, SampleKind, Skip, SourceDescription, SourceId, SourceSelection, SpanId, Timestamp, TrackerError,
-    TrackerEvent, Work,
+    CatalogReport, Failure, Fidelity, GridLocation, Joules, Observation, PowerDomain, PowerScope, ProviderError,
+    ProviderId, ReadoutId, ReportWarning, Sample, SampleKind, SessionReport, Skip, SourceDescription, SourceId,
+    SourceSelection, SpanId, Timestamp, TrackerError, TrackerEvent, Usage, Work,
 };
 use carbontracker_run::{ConsoleSink, Item, Layout, Started, Verbosity, deliver, record};
 use common::Shared;
@@ -33,8 +33,15 @@ fn console(verbosity: Verbosity) -> (ConsoleSink, Shared) {
     (sink, out)
 }
 
-/// A start with one GPU, served by NVML.
+/// A start with one GPU, served by NVML, on the world-average grid nobody
+/// asked for.
 fn started() -> Item {
+    started_on(None)
+}
+
+/// A start with one GPU, served by NVML, and the world-average grid, with the
+/// grid's `location` as recorded.
+fn started_on(location: Option<record::Location>) -> Item {
     let mut catalog = CatalogReport::default();
     catalog.sources.insert(
         nvml(),
@@ -46,13 +53,17 @@ fn started() -> Item {
             fidelity: Fidelity::Measured,
         },
     );
+    catalog.sources.insert(
+        SourceId::new(ProviderId(2), 0),
+        SourceDescription::Intensity { location: GridLocation::Global, fidelity: Fidelity::Assumed },
+    );
     Item::Started(Arc::new(Started {
         header: record::Header {
             format: record::FORMAT,
             carbontracker: "3.0.0".to_owned(),
             frontend: "test".to_owned(),
             command: Vec::new(),
-            config: record::Config { interval_s: 1.0, pue: 1.0, components: None, location: None },
+            config: record::Config { interval_s: 1.0, pue: 1.0, components: None, location },
             epochs: None,
         },
         probe: record::Probe { candidates: Vec::new() },
@@ -165,4 +176,42 @@ fn errors_and_lost_events_print_at_quiet() {
         "CarbonTracker: WARNING - events were lost here: the record is incomplete\n\
          CarbonTracker: ERROR - the engine stopped\n"
     );
+}
+
+/// A session that ended with `warnings`.
+fn ended(warnings: Vec<ReportWarning>) -> Item {
+    let none = Usage { energy: Joules::new(0.0).unwrap(), emissions: None };
+    Item::Event(TrackerEvent::SessionEnded {
+        report: Arc::new(SessionReport {
+            per_source: HashMap::new(),
+            sources: HashMap::new(),
+            total: none,
+            claimed: none,
+            unclaimed: none,
+            intensities: HashMap::new(),
+            duration: Duration::from_secs(1),
+            samples: HashMap::new(),
+            warnings,
+        }),
+    })
+}
+
+/// AC/OUT-21, AC/OUT-32
+#[test]
+fn an_estimate_leaves_out_the_world_average_only_when_it_was_asked_for() {
+    let estimated = || {
+        ended(vec![ReportWarning::Estimated {
+            sources: vec!["Intel Xeon (cpu) modelled".to_owned(), "assumed world-average grid".to_owned()],
+        }])
+    };
+    let printed = |location| {
+        let (mut sink, out) = console(Verbosity::Quiet);
+        deliver(&mut sink, &started_on(location)).unwrap();
+        deliver(&mut sink, &estimated()).unwrap();
+        out.text()
+    };
+    let prefix = "CarbonTracker: WARNING - part of this total is an estimate, not measured on this machine: ";
+    assert_eq!(printed(None), format!("{prefix}Intel Xeon (cpu) modelled, assumed world-average grid\n"));
+    let global = Some(record::Location::Stated(record::Grid::Global));
+    assert_eq!(printed(global), format!("{prefix}Intel Xeon (cpu) modelled\n"));
 }
