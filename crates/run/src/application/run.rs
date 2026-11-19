@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use carbontracker::{
-    ConfigError, GridLocation, SessionReport, SourceSelection, SpanId, Subscription,
+    ConfigError, SessionReport, SourceSelection, SpanId, Subscription,
     TrackerConfig, Work, TrackerError, TrackerHandle, TrackerQuery, WeakTrackerHandle,
 };
 use carbontracker_providers::{
@@ -113,7 +113,6 @@ fn begin(
 ) -> Result<(TrackerHandle, Forecaster, Started, Subscription, Vec<String>), RunError> {
     let components = encode::components(&probe.measure);
     let keyed = probe.grid.api_keys.contains_key(&KeyedService::ElectricityMaps);
-    let global = matches!(probe.grid.location, Some(GridLocation::Global));
     let registry = ProviderRegistry::new(probe)?;
     // Some probes are network calls: a runtime that lives only for the probe.
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -135,8 +134,8 @@ fn begin(
         },
         epochs: None,
     };
-    let described = resolution.sources().map(|(id, source)| (id, source.clone())).collect();
-    let warnings = presentation::unasked(&described, global, resolution.location(), keyed);
+    let assumed = (!header.config.global()).then(|| presentation::assumed_grid(resolution.location(), keyed));
+    let warnings = presentation::start_warnings(resolution.sources(), assumed.as_deref());
     let probe = encode::probe(&resolution);
     let served_by = resolution
         .sources()

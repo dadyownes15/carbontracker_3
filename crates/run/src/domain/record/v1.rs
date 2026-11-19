@@ -69,6 +69,13 @@ pub struct Config {
     pub location: Option<Location>,
 }
 
+impl Config {
+    /// Whether the user asked for the world-average grid.
+    pub fn global(&self) -> bool {
+        self.location == Some(Location::Stated(Grid::Global))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Location {

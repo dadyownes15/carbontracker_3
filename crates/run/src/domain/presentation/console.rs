@@ -1,7 +1,7 @@
 //! Text printed before and after a run: the [sources] and [ready] lines, the
 //! [consumption] block (the CLI's [summary], or the classic block followed by
 //! [grid_line] and [logs_line] in Python), and the warnings for sources
-//! nobody asked to estimate ([unasked]).
+//! nobody asked to estimate ([start_warnings]).
 
 use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
@@ -297,24 +297,23 @@ pub fn assumed_grid(location: Option<&Location>, keyed: bool) -> String {
     format!("the world-average grid is assumed for {location}: {key}, and {table}")
 }
 
-/// A warning per source that is modelled or assumed and was not asked for,
-/// in source order. A stated figure warns nothing, nor does the world-average
-/// grid when `global` asked for it; one nobody asked for says why.
-pub fn unasked(
-    sources: &HashMap<SourceId, SourceDescription>,
-    global: bool,
-    location: Option<&Location>,
-    keyed: bool,
+/// The warnings printed at start: one per source that is modelled or assumed
+/// and was not asked for, in source order. A stated figure warns nothing.
+/// `assumed` is the warning for the world-average grid, such as
+/// [assumed_grid]; `None` when the user asked for it.
+pub fn start_warnings<'a>(
+    sources: impl IntoIterator<Item = (SourceId, &'a SourceDescription)>,
+    assumed: Option<&str>,
 ) -> Vec<String> {
-    let mut sources: Vec<_> = sources.iter().collect();
-    sources.sort_by_key(|(id, _)| **id);
+    let mut sources: Vec<_> = sources.into_iter().collect();
+    sources.sort_by_key(|(id, _)| *id);
     sources
         .into_iter()
         .filter_map(|(_, source)| match source {
             SourceDescription::Intensity {
                 fidelity: Fidelity::Assumed,
                 ..
-            } => (!global).then(|| assumed_grid(location, keyed)),
+            } => assumed.map(str::to_owned),
             source => caveat(source),
         })
         .collect()
@@ -571,16 +570,16 @@ mod tests {
         let cpu = power("Intel Xeon", PowerDomain::Cpu, Fidelity::Modelled);
         let sources = catalog(vec![cpu, world.clone()]).sources;
         assert_eq!(
-            unasked(&sources, false, None, false),
+            start_warnings(sources.iter().map(|(id, source)| (*id, source)), Some("the grid is assumed")),
             [
-                "Intel Xeon is modelled, not measured: treat its energy as an estimate".to_owned(),
-                assumed_grid(None, false),
+                "Intel Xeon is modelled, not measured: treat its energy as an estimate",
+                "the grid is assumed",
             ]
         );
 
         let stated = power("static", PowerDomain::Cpu, Fidelity::Stated);
         let asked = catalog(vec![stated, world]).sources;
-        assert!(unasked(&asked, true, None, false).is_empty());
+        assert!(start_warnings(asked.iter().map(|(id, source)| (*id, source)), None).is_empty());
     }
 
     /// AC/RUN-23
