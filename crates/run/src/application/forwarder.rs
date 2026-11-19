@@ -30,6 +30,7 @@ impl ForwarderHandle {
         view: View<P>,
         events: Subscription,
         writer: WriterHandle,
+        started_written: oneshot::Sender<()>,
     ) -> Self {
         let (finish, finished) = oneshot::channel();
         let actor = ForwarderActor {
@@ -40,7 +41,7 @@ impl ForwarderHandle {
         };
         thread::Builder::new()
             .name("carbontracker-forwarder".to_owned())
-            .spawn(move || run_forwarder(actor, started, warnings))
+            .spawn(move || run_forwarder(actor, started, warnings, started_written))
             .expect("a thread can be spawned");
         Self { finish }
     }
@@ -75,12 +76,19 @@ impl<P: Projection> ForwarderActor<P> {
 }
 
 /// The run's start and its warnings, its events, how it ended, then closes
-/// the writer.
-fn run_forwarder<P: Projection>(mut actor: ForwarderActor<P>, started: Arc<Started>, warnings: Vec<String>) {
+/// the writer. `started_written` answers once the start and its warnings
+/// reach every sink.
+fn run_forwarder<P: Projection>(
+    mut actor: ForwarderActor<P>,
+    started: Arc<Started>,
+    warnings: Vec<String>,
+    started_written: oneshot::Sender<()>,
+) {
     actor.forward(Item::Started(started));
     for warning in warnings {
         actor.forward(Item::Warning(warning));
     }
+    actor.writer.written(started_written);
 
     // The engine's events, until the session ends or the engine stops.
     let ended = loop {

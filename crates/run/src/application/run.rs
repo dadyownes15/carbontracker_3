@@ -77,8 +77,17 @@ pub fn start<P: Projection>(
             projection.describe(&mut started.header);
             let started = Arc::new(started);
             let view = View::new(projection);
-            let forwarder =
-                ForwarderHandle::new(Arc::clone(&started), warnings, view.clone(), events, writer);
+            let (started_written, written) = oneshot::channel();
+            let forwarder = ForwarderHandle::new(
+                Arc::clone(&started),
+                warnings,
+                view.clone(),
+                events,
+                writer,
+                started_written,
+            );
+            // A frontend starts its work only after what is measured is printed.
+            let _ = written.blocking_recv();
             Ok(RunHandle {
                 engine,
                 forwarder,

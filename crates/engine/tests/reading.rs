@@ -270,9 +270,13 @@ async fn a_panicking_provider_is_retired_alone() {
         power.iter().all(|o| *o == panicked || *o == Observation::Failed(Failure::Retired)),
         "{power:?}"
     );
+    // The grid skips, so a request that finds its read still out on a slow
+    // host is `Skipped`. Nothing of the panic reaches it.
+    let grid = &observed[&source(GRID)];
+    assert!(grid.iter().any(|o| matches!(o, Observation::Samples(_))), "the grid was read: {grid:?}");
     assert!(
-        observed[&source(GRID)].iter().all(|o| matches!(o, Observation::Samples(_))),
-        "the other provider is unaffected"
+        !grid.iter().any(|o| matches!(o, Observation::Failed(Failure::Panicked(_) | Failure::Retired))),
+        "the other provider is unaffected: {grid:?}"
     );
 }
 
@@ -771,12 +775,15 @@ async fn a_subscription_taken_at_start_sees_the_opening_readouts_however_late_it
 #[tokio::test]
 async fn a_subscriber_from_the_start_sees_the_opening_readouts() {
     // Read once each: a missed opening readout is never made up for.
+    // Subscribed before the engine reads anything: a later `subscribe` can
+    // miss them (AC/ENG-65).
     for run in 0..200 {
-        let tracker = tracker(
-            Test::new(POWER, Behaviour::Answer).cooling(Cooldown::Never),
-            Test::new(GRID, Behaviour::Answer).cooling(Cooldown::Never),
-        );
-        let mut events = tracker.subscribe();
+        let mut sources = Sources::new();
+        let power_provider = Test::new(POWER, Behaviour::Answer).cooling(Cooldown::Never);
+        let grid_provider = Test::new(GRID, Behaviour::Answer).cooling(Cooldown::Never);
+        sources.add_provider(POWER, power_provider, [(source(POWER), power())]).unwrap();
+        sources.add_provider(GRID, grid_provider, [(source(GRID), grid())]).unwrap();
+        let (tracker, mut events) = start_subscribed(sources, config()).expect("a valid config");
         tracker.finish().await.expect("the session finishes");
         let providers: Vec<ProviderId> = landed(&mut events).await.into_iter().map(|(provider, ..)| provider).collect();
         assert!(providers.contains(&POWER) && providers.contains(&GRID), "run {run} landed {providers:?}");
