@@ -27,6 +27,7 @@ pub struct ConsoleSink {
     /// For naming spans in later events, and sources in failed readouts.
     spans: HashMap<SpanId, String>,
     sources: HashMap<SourceId, SourceDescription>,
+    served_by: HashMap<SourceId, &'static str>,
 }
 
 impl ConsoleSink {
@@ -46,6 +47,7 @@ impl ConsoleSink {
             now: Box::new(|| chrono::Local::now().format("%H:%M:%S").to_string()),
             spans: HashMap::new(),
             sources: HashMap::new(),
+            served_by: HashMap::new(),
         }
     }
 
@@ -157,6 +159,7 @@ impl Sink for ConsoleSink {
 
     fn start(&mut self, started: &Started) -> io::Result<()> {
         self.sources = started.catalog.sources.clone();
+        self.served_by = started.served_by.clone();
         self.monitor = started.header.epochs.as_ref().map(|epochs| epochs.monitor);
         if !self.normal() {
             return Ok(());
@@ -192,7 +195,7 @@ impl Sink for ConsoleSink {
                     self.log(&events::marked(&name, &entry.kind, entry.amount))?;
                 }
             }
-            TrackerEvent::ReadoutLanded { outcomes, .. } if everything => {
+            TrackerEvent::ReadoutLanded { outcomes, .. } => {
                 let mut outcomes: Vec<_> = outcomes.iter().collect();
                 outcomes.sort_by_key(|(source, _)| **source);
                 let mut figures = Vec::new();
@@ -203,14 +206,16 @@ impl Sink for ConsoleSink {
                             events::figure(description, samples)
                                 .map(|figure| format!("{label} {figure}")),
                         ),
-                        // Nothing new to show; the last value still stands.
+                        // Healthy: the last value still stands.
                         Observation::Unchanged | Observation::Skipped(_) => {}
                         Observation::Failed(error) => {
-                            self.log(&events::source_failed(&label, &error.to_string()))?
+                            let provider = self.served_by.get(source).copied();
+                            let text = presentation::failed_read(&label, provider, &error.to_string());
+                            self.say(&presentation::warning(&text))?;
                         }
                     }
                 }
-                if !figures.is_empty() {
+                if everything && !figures.is_empty() {
                     self.log(&events::readout(&figures))?;
                 }
             }

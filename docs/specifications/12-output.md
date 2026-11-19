@@ -15,12 +15,12 @@ Every line the console prints is one of four kinds.
 | Kind | Is |
 |---|---|
 | Error | The session, or part of it, could not go on | <!-- AC/OUT-2 unbuilt -->
-| Warning | A reported figure is less trustworthy than it looks, or something the user asked for did not happen | <!-- AC/OUT-3 unbuilt -->
+| Warning | A reported figure is less trustworthy than it looks, or something the user asked for did not happen | <!-- AC/OUT-3 -->
 | Info | What is measured, and the closing block | <!-- AC/OUT-4 unbuilt -->
 | Debug | One probe step, event or readout, with its time | <!-- AC/OUT-5 unbuilt -->
 
 **A message that could make a reported figure wrong is a warning, never an
-info or debug line.** <!-- AC/OUT-7 unbuilt -->
+info or debug line.** <!-- AC/OUT-7 -->
 
 ## Verbosity
 
@@ -31,13 +31,13 @@ info or debug line.** <!-- AC/OUT-7 unbuilt -->
 | Everything | Normal, plus debug lines | `--verbose` | — | <!-- AC/OUT-10 unbuilt -->
 
 **Errors and warnings print at every verbosity.** No setting silences
-them. <!-- AC/OUT-11 unbuilt -->
+them. <!-- AC/OUT-11 -->
 
 **A higher verbosity only adds lines.** Every line printed at a lower
 verbosity is printed at a higher one, with the same text. <!-- AC/OUT-12 unbuilt -->
 
 **A warning prints when its cause is known, not at the end.** A warning raised
-during the session prints during the session. <!-- AC/OUT-13 unbuilt -->
+during the session prints during the session. <!-- AC/OUT-13 -->
 
 **`output.log` holds what Normal prints, whatever the verbosity.** <!-- AC/OUT-14 unbuilt -->
 
@@ -55,10 +55,10 @@ Under `ignore_errors` a failed read does not stop the session
 ([08](08-measurements.md)), so the warning is how the user learns of it.
 
 **Every failed read is a warning**, naming the source and the failure.
-<!-- AC/OUT-15 unbuilt -->
+<!-- AC/OUT-15 -->
 
 **A skipped or unchanged read is never a warning.** Both are healthy.
-<!-- AC/OUT-20 unbuilt -->
+<!-- AC/OUT-20 -->
 
 > The console at Quiet is given NVML's readouts in order: samples,
 > `Failed(Provider(Unavailable))` three times, `Unchanged`, then
@@ -104,7 +104,7 @@ Quiet prints them without it. <!-- AC/OUT-28 unbuilt -->
 ## What it never does
 
 **It never prints a warning for healthy behaviour**: a skipped read, an
-unchanged read, or a cooldown. <!-- AC/OUT-30 unbuilt -->
+unchanged read, or a cooldown. <!-- AC/OUT-30 -->
 
 **It never prints to stdout during a command run.** All output is on stderr
 ([06](06-cli.md)). <!-- AC/OUT-31 unbuilt -->

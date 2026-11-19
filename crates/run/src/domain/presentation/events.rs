@@ -32,11 +32,6 @@ pub fn readout(figures: &[String]) -> String {
     format!("readout: {}", figures.join(", "))
 }
 
-/// A source that failed during a readout.
-pub fn source_failed(label: &str, error: &str) -> String {
-    format!("{label}: {error}")
-}
-
 /// The latest sample with its unit; `None` without samples.
 pub fn figure(description: Option<&SourceDescription>, samples: &[Sample]) -> Option<String> {
     let latest = significant(samples.last()?.value());

@@ -314,6 +314,12 @@ pub fn notes(report: &SessionReport) -> Vec<String> {
         .collect()
 }
 
+/// A source that could not be read, and the provider behind it.
+pub fn failed_read(source: &str, provider: Option<&str>, error: &str) -> String {
+    let from = provider.map(|provider| format!(" from {provider}")).unwrap_or_default();
+    format!("{source}{from} was not read: {error}; its last value is used")
+}
+
 /// Formats a note.
 pub fn note(text: &str) -> String {
     format!("note: {text}")
