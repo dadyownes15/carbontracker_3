@@ -150,6 +150,34 @@ def test_verbose_zero_still_prints_an_error(capsys):
     assert "Continued training without monitoring" in capsys.readouterr().out
 
 
+# AC/OUT-21
+# AC/OUT-28
+def test_verbose_zero_prints_the_reports_warnings_without_the_closing_block(capsys):
+    # The country table's figure is modelled, so the report warns of an estimate.
+    CarbonTracker(verbose=0, country="DK", power=10.0, update_interval=60).stop()
+    out = capsys.readouterr().out
+    assert "WARNING - part of this total is an estimate" in out, out
+    assert "Actual consumption" not in out and "Finished monitoring." not in out, out
+
+
+# AC/OUT-32
+def test_an_asked_for_world_average_warns_nothing(capsys):
+    CarbonTracker(verbose=0, global_=True, power=10.0, update_interval=0.05).stop()
+    assert capsys.readouterr().out == ""
+
+
+# AC/OUT-25
+def test_a_refused_stop_is_a_warning_naming_the_span(capsys):
+    tracker = CarbonTracker(verbose=0, **PINNED)
+    outer = tracker.span("outer").start()
+    inner = tracker.span("inner", parent=outer).start()
+    outer.stop()  # stops inner with it, so the engine refuses the next stop
+    inner.stop()
+    tracker.stop()
+    [warning] = [line for line in capsys.readouterr().out.splitlines() if "WARNING - " in line]
+    assert f"span {inner.id}" in warning and "refused" in warning, warning
+
+
 # AC/PY-10
 def test_epochs_before_pred_zero_predicts_nothing(capsys):
     tracker = CarbonTracker(epochs=3, epochs_before_pred=0, **PINNED)

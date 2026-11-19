@@ -23,10 +23,6 @@ pub fn marked(name: &str, kind: &str, amount: f64) -> String {
     format!("{name}: {kind} +{amount}")
 }
 
-pub fn refused(name: &str, error: &str) -> String {
-    format!("refused: {name}: {error}")
-}
-
 /// A readout line listing each source's latest value.
 pub fn readout(figures: &[String]) -> String {
     format!("readout: {}", figures.join(", "))

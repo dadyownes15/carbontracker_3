@@ -3,16 +3,20 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
 
-use carbontracker::{Observation, SessionReport, SourceDescription, SourceId, SpanId, TrackerEvent};
+use carbontracker::{
+    GridLocation, Observation, ReportWarning, SessionReport, SourceDescription, SourceId, SpanId, TrackerEvent,
+};
 use carbontracker_providers::ProbeProgress;
 
 use super::Verbosity;
 use crate::domain::item::{Block, Layout, Outcome, Started};
 use crate::domain::presentation::{self, PREFIX, Ready, events};
+use crate::domain::record;
 use crate::ports::Sink;
 
-/// What is measured, the closing block, and at [Verbosity::Everything] every
-/// probe step and event, stamped with the time of day.
+/// Warnings and errors at every verbosity; from [Verbosity::Normal] what is
+/// measured and the closing block; at [Verbosity::Everything] every probe
+/// step, event and readout, stamped with the time of day.
 pub struct ConsoleSink {
     out: Box<dyn Write + Send>,
     verbosity: Verbosity,
@@ -24,10 +28,13 @@ pub struct ConsoleSink {
     /// The epochs monitored, for 2.4.7's interrupted line.
     monitor: Option<u64>,
     now: Box<dyn FnMut() -> String + Send>,
-    /// For naming spans in later events, and sources in failed readouts.
+    /// For naming spans in later events, and sources in failed reads.
     spans: HashMap<SpanId, String>,
     sources: HashMap<SourceId, SourceDescription>,
     served_by: HashMap<SourceId, &'static str>,
+    /// The labels of estimated sources the user asked for: the world-average
+    /// grid, when `global` was given.
+    asked: Vec<String>,
 }
 
 impl ConsoleSink {
@@ -48,6 +55,7 @@ impl ConsoleSink {
             spans: HashMap::new(),
             sources: HashMap::new(),
             served_by: HashMap::new(),
+            asked: Vec::new(),
         }
     }
 
@@ -100,6 +108,19 @@ impl ConsoleSink {
                 .map(presentation::source)
                 .unwrap_or_else(|| source.to_string()),
         )
+    }
+
+    /// `warning` without the sources the user asked for; `None` when it rests
+    /// on nothing else.
+    fn unasked(&self, warning: &ReportWarning) -> Option<ReportWarning> {
+        match warning {
+            ReportWarning::Estimated { sources } => {
+                let sources: Vec<String> =
+                    sources.iter().filter(|source| !self.asked.contains(source)).cloned().collect();
+                (!sources.is_empty()).then_some(ReportWarning::Estimated { sources })
+            }
+            other => Some(other.clone()),
+        }
     }
 
     /// The session's closing block, in the layout.
@@ -157,6 +178,17 @@ impl Sink for ConsoleSink {
     fn start(&mut self, started: &Started) -> io::Result<()> {
         self.sources = started.catalog.sources.clone();
         self.served_by = started.served_by.clone();
+        let global = started.header.config.location == Some(record::Location::Stated(record::Grid::Global));
+        self.asked = started
+            .catalog
+            .sources
+            .values()
+            .filter(|source| {
+                global
+                    && matches!(source, SourceDescription::Intensity { location: GridLocation::Global, .. })
+            })
+            .map(ToString::to_string)
+            .collect();
         self.monitor = started.header.epochs.as_ref().map(|epochs| epochs.monitor);
         if !self.normal() {
             return Ok(());
@@ -216,9 +248,9 @@ impl Sink for ConsoleSink {
                     self.log(&events::readout(&figures))?;
                 }
             }
-            TrackerEvent::CommandRefused { span, error } if everything => {
+            TrackerEvent::CommandRefused { span, error } => {
                 let name = self.span_name(*span);
-                self.log(&events::refused(&name, &error.to_string()))?;
+                self.say(&presentation::warning(&presentation::refused(&name, &error.to_string())))?;
             }
             TrackerEvent::SpanSettled { report } => {
                 if everything {
@@ -228,7 +260,15 @@ impl Sink for ConsoleSink {
                 }
                 self.spans.remove(&report.span_id);
             }
-            TrackerEvent::SessionEnded { report } if self.normal() => self.closing(report)?,
+            TrackerEvent::SessionEnded { report } => {
+                let warnings: Vec<_> = report.warnings.iter().filter_map(|warning| self.unasked(warning)).collect();
+                for warning in warnings {
+                    self.say(&presentation::warning(&warning.to_string()))?;
+                }
+                if self.normal() {
+                    self.closing(report)?;
+                }
+            }
             _ => {}
         }
         Ok(())

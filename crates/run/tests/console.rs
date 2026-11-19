@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use carbontracker::{
     CatalogReport, Failure, Fidelity, Observation, PowerDomain, PowerScope, ProviderError, ProviderId, ReadoutId,
-    Sample, SampleKind, Skip, SourceDescription, SourceId, Timestamp, TrackerEvent,
+    Sample, SampleKind, Skip, SourceDescription, SourceId, SourceSelection, SpanId, Timestamp, TrackerError,
+    TrackerEvent, Work,
 };
 use carbontracker_run::{ConsoleSink, Item, Layout, Started, Verbosity, deliver, record};
 
@@ -136,4 +137,45 @@ fn each_failed_read_is_written_before_the_next_readout() {
         seen.push(warnings(&out.text()).len());
     }
     assert_eq!(seen, [0, 1, 2, 3, 3, 3]);
+}
+
+/// AC/OUT-25
+#[test]
+fn a_refused_command_is_a_warning_naming_the_span() {
+    let inner = SpanId::new(2);
+    for verbosity in VERBOSITIES {
+        let (mut sink, out) = console(verbosity);
+        deliver(&mut sink, &started()).unwrap();
+        let events = [
+            TrackerEvent::SpanStarted {
+                span: inner,
+                name: "inner".to_owned(),
+                parent: None,
+                selection: SourceSelection::All,
+                at: t(1),
+            },
+            TrackerEvent::SpanStopped { span: inner, work: Work::default(), at: t(2) },
+            TrackerEvent::CommandRefused { span: inner, error: TrackerError::AlreadyClosed(inner) },
+        ];
+        for event in events {
+            deliver(&mut sink, &Item::Event(event)).unwrap();
+        }
+        let text = out.text();
+        let [warning] = warnings(&text)[..] else { panic!("{verbosity:?}: {text}") };
+        assert!(warning.contains("inner") && warning.contains("refused"), "{verbosity:?}: {warning}");
+    }
+}
+
+/// AC/OUT-2, AC/OUT-11, AC/OUT-23
+#[test]
+fn errors_and_lost_events_print_at_quiet() {
+    let (mut sink, out) = console(Verbosity::Quiet);
+    deliver(&mut sink, &started()).unwrap();
+    deliver(&mut sink, &Item::Gap).unwrap();
+    deliver(&mut sink, &Item::Error("the engine stopped".to_owned())).unwrap();
+    assert_eq!(
+        out.text(),
+        "CarbonTracker: WARNING - events were lost here: the record is incomplete\n\
+         CarbonTracker: ERROR - the engine stopped\n"
+    );
 }

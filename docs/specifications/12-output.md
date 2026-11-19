@@ -14,7 +14,7 @@ Every line the console prints is one of four kinds.
 
 | Kind | Is |
 |---|---|
-| Error | The session, or part of it, could not go on | <!-- AC/OUT-2 unbuilt -->
+| Error | The session, or part of it, could not go on | <!-- AC/OUT-2 -->
 | Warning | A reported figure is less trustworthy than it looks, or something the user asked for did not happen | <!-- AC/OUT-3 -->
 | Info | What is measured, and the closing block | <!-- AC/OUT-4 unbuilt -->
 | Debug | One probe step, event or readout, with its time | <!-- AC/OUT-5 unbuilt -->
@@ -75,11 +75,11 @@ Each of these is a warning, at every verbosity:
 
 | Warning | Spec | |
 |---|---|---|
-| Each of the session report's warnings: thin coverage, no intensity, held intensity, an estimated total, no selected sources | [09](09-profiling.md) | <!-- AC/OUT-21 unbuilt -->
+| Each of the session report's warnings: thin coverage, no intensity, held intensity, an estimated total, no selected sources | [09](09-profiling.md) | <!-- AC/OUT-21 -->
 | A source that is not measured: modelled or assumed, and not asked for | [03](03-providers.md), [04](04-run.md) | <!-- AC/OUT-22 -->
-| Events were lost: the record is incomplete | [04](04-run.md) | <!-- AC/OUT-23 unbuilt -->
+| Events were lost: the record is incomplete | [04](04-run.md) | <!-- AC/OUT-23 -->
 | A sink failed and stopped | [04](04-run.md) | <!-- AC/OUT-24 unbuilt -->
-| A command was refused: a mark, start or stop the engine did not accept | [02](02-engine.md) | <!-- AC/OUT-25 unbuilt -->
+| A command was refused: a mark, start or stop the engine did not accept | [02](02-engine.md) | <!-- AC/OUT-25 -->
 
 **Only a measured or stated source warns nothing.** A source whose fidelity
 is modelled or assumed is a warning when the session starts, naming the
@@ -92,7 +92,7 @@ intensity, `global`, profiler mode) is not warned about. <!-- AC/OUT-32 -->
 > `global=True` prints no line. (OUT-22, OUT-32)
 
 **The session report's warnings print apart from the closing block**, so
-Quiet prints them without it. <!-- AC/OUT-28 unbuilt -->
+Quiet prints them without it. <!-- AC/OUT-28 -->
 
 > A package session at `verbose=0`, `update_interval=60`, stopped at once. No
 > sample lands, so the report warns of thin coverage. The warning prints and

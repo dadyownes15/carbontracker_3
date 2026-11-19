@@ -326,6 +326,11 @@ pub fn failed_read(source: &str, provider: Option<&str>, error: &str) -> String 
     format!("{source}{from} was not read: {error}; its last value is used")
 }
 
+/// A command on a span that the engine did not accept.
+pub fn refused(span: &str, error: &str) -> String {
+    format!("a command on {span} was refused: {error}")
+}
+
 /// Formats a note.
 pub fn note(text: &str) -> String {
     format!("note: {text}")
