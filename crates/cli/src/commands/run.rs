@@ -26,12 +26,21 @@ pub fn track(args: &Args, command: &[OsString]) -> Result<i32, String> {
         .log_dir()
         .map(|dir| Folder::claim(dir, None).map_err(|error| format!("cannot write logs in {}: {error}", dir.display())))
         .transpose()?;
+    if let (Some(folder), Some(project)) = (&folder, args.project())
+        && let Err(error) = folder.link_to_project(project)
+    {
+        say(&presentation::warning(&error));
+    }
 
     let name = args::span_name(command);
     let verbosity = if args.verbose { Verbosity::Everything } else { Verbosity::Normal };
     let console = Console { out: Box::new(io::stderr()), verbosity, layout: Layout::Summary { title: name.clone() } };
     let sinks = standard_sinks(console, folder.as_ref()).map_err(|error| error.to_string())?;
-    let run = carbontracker_run::start(RunConfig { probe, tracker, frontend: "cli", sinks }, |_, _| ())
+    let run = carbontracker_run::start(RunConfig { probe, tracker, frontend: "cli",
+        project: args.project().map(str::to_owned),
+        name: args.name().map(str::to_owned),
+        sinks,
+    }, |_, _| ())
         .map_err(|error| error.to_string())?;
 
     // The command alone needs a runtime: to wait on it and on signals.

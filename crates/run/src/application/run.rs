@@ -30,6 +30,10 @@ pub struct RunConfig {
     pub tracker: TrackerConfig,
     /// The record's `frontend`: `cli`, `python`, `slurm`.
     pub frontend: &'static str,
+    /// The project the run belongs to; checked with [check_project](crate::check_project).
+    pub project: Option<String>,
+    /// The run's name, for people.
+    pub name: Option<String>,
     /// Everything the run writes to, in this order.
     pub sinks: Vec<Box<dyn Sink>>,
 }
@@ -68,10 +72,12 @@ pub fn start<P: Projection>(
         probe,
         tracker,
         frontend,
+        project,
+        name,
         sinks,
     } = config;
     let writer = WriterHandle::new(sinks);
-    match begin(probe, tracker, frontend, &writer) {
+    match begin(probe, tracker, frontend, project, name, &writer) {
         Ok((engine, forecaster, mut started, events, warnings)) => {
             let projection = projection(&engine.downgrade(), &forecaster);
             projection.describe(&mut started.header);
@@ -109,6 +115,8 @@ fn begin(
     probe: ProbeConfig,
     tracker: TrackerConfig,
     frontend: &'static str,
+    project: Option<String>,
+    name: Option<String>,
     writer: &WriterHandle,
 ) -> Result<(TrackerHandle, Forecaster, Started, Subscription, Vec<String>), RunError> {
     let components = encode::components(&probe.measure);
@@ -134,6 +142,8 @@ fn begin(
             location: encode::location(resolution.location()),
         },
         epochs: None,
+        project,
+        name,
     };
     let assumed = resolution
         .sources()

@@ -4,14 +4,33 @@
 use std::path::PathBuf;
 
 use carbontracker_run::presentation::{self, report as text};
-use carbontracker_run::{SpanGroup, Total, read_report};
+use carbontracker_run::{SpanGroup, Total, check_project, project_folder, read_report};
+use pyo3::exceptions::{PyFileNotFoundError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
 /// The report as a dict: `runs`, `spans`, `total`, `unreadable` and `text`.
+/// With `project`, only its runs; with no paths, those linked from its
+/// folder. A bad project name is a `ValueError`; a project with no folder, a
+/// `FileNotFoundError`.
 #[pyfunction]
-pub fn report(py: Python<'_>, paths: Vec<PathBuf>) -> PyResult<Bound<'_, PyDict>> {
-    let read = py.detach(|| read_report(&paths))?;
+#[pyo3(signature = (paths, project=None))]
+pub fn report(py: Python<'_>, mut paths: Vec<PathBuf>, project: Option<String>) -> PyResult<Bound<'_, PyDict>> {
+    if let Some(project) = &project {
+        check_project(project).map_err(PyValueError::new_err)?;
+        if paths.is_empty() {
+            let folder = project_folder(project)
+                .ok_or_else(|| PyFileNotFoundError::new_err("no home directory to find projects in"))?;
+            if !folder.is_dir() {
+                return Err(PyFileNotFoundError::new_err(format!(
+                    "no runs of project {project} on this machine: {} is not there",
+                    folder.display()
+                )));
+            }
+            paths.push(folder);
+        }
+    }
+    let read = py.detach(|| read_report(&paths, project.as_deref()))?;
     let dict = PyDict::new(py);
 
     let runs = PyList::empty(py);
@@ -20,6 +39,8 @@ pub fn report(py: Python<'_>, paths: Vec<PathBuf>) -> PyResult<Bound<'_, PyDict>
         item.set_item("file", &run.file)?;
         item.set_item("started", crate::convert::seconds(&run.started))?;
         item.set_item("frontend", &run.frontend)?;
+        item.set_item("project", &run.project)?;
+        item.set_item("name", &run.name)?;
         item.set_item("command", &run.command)?;
         item.set_item("ended", run.ended())?;
         item.set_item("code", run.outcome.as_ref().and_then(|outcome| outcome.code))?;

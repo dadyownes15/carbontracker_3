@@ -101,6 +101,14 @@ pub struct Args {
     /// environment and the config file.
     #[arg(long, alias = "api_keys", global = true, value_name = "KEYS", help_heading = "Keys")]
     api_keys: Option<String>,
+
+    /// The project the run belongs to, e.g. saintslab/codeq; `report --project` finds its runs.
+    #[arg(long, value_name = "NAME", value_parser = project, help_heading = "Naming")]
+    project: Option<String>,
+
+    /// The run's name, shown by `report` instead of the command.
+    #[arg(long, value_name = "TEXT", value_parser = run_name, help_heading = "Naming")]
+    name: Option<String>,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -123,8 +131,12 @@ pub enum Action {
         /// Save the CSV to FILE instead.
         #[arg(short, long, value_name = "FILE", requires = "csv")]
         output: Option<PathBuf>,
+        /// Keep only this project's runs, and those of the projects below it; with no PATH, read
+        /// the runs linked from the project's folder on this machine.
+        #[arg(long, value_name = "NAME")]
+        project: Option<String>,
         /// Record files, or folders to search for them.
-        #[arg(value_name = "PATH", required = true)]
+        #[arg(value_name = "PATH", required_unless_present = "project")]
         paths: Vec<PathBuf>,
     },
     #[command(external_subcommand)]
@@ -234,6 +246,16 @@ impl Args {
     }
 
     /// Where to write a run's files; `None` with `--no-log`.
+    /// The project the run belongs to.
+    pub fn project(&self) -> Option<&str> {
+        self.project.as_deref()
+    }
+
+    /// The run's name.
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
     pub fn log_dir(&self) -> Option<&Path> {
         (!self.no_log).then_some(self.log_dir.as_path())
     }
@@ -290,6 +312,17 @@ pub fn removed(error: &clap::Error) -> Option<String> {
 /// A command as one line, for naming its span.
 pub fn span_name(command: &[OsString]) -> String {
     command.iter().map(|part| part.to_string_lossy()).collect::<Vec<_>>().join(" ")
+}
+
+fn project(text: &str) -> Result<String, String> {
+    carbontracker_run::check_project(text).map(|()| text.to_owned())
+}
+
+fn run_name(text: &str) -> Result<String, String> {
+    if text.trim().is_empty() || text.chars().any(char::is_control) {
+        return Err("expected a name with something other than spaces in it and no control character".to_owned());
+    }
+    Ok(text.to_owned())
 }
 
 fn zone(text: &str) -> Result<GridLocation, String> {

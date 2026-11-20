@@ -21,7 +21,7 @@ re-blessed. After it ships, amendment is additive only, by the rules above.
 
 | `kind` | Is |
 |---|---|
-| `run` | The header: version, config, location, grid, epochs | <!-- AC/REC-6 -->
+| `run` | The header: version, config, location, grid, epochs, and the run's `project` and `name` when it has them | <!-- AC/REC-6 -->
 | `probe` | What was tried and what each candidate decided | <!-- AC/REC-7 -->
 | `catalog` | The sources measured, with description and fidelity, and `pairs`: each power source's intensity source | <!-- AC/REC-8 -->
 | `readout` | One request to one provider: each source it serves, under what became of it | <!-- AC/REC-9 -->

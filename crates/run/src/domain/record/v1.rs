@@ -57,6 +57,12 @@ pub struct Header {
     pub config: Config,
     /// `None` if the run has no epochs.
     pub epochs: Option<Epochs>,
+    /// The project the run belongs to, e.g. `saintslab/codeq`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    /// The run's name, for people.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

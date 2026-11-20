@@ -39,7 +39,7 @@ pub fn runs(report: &Report) -> String {
         total.emissions_g.map_or_else(|| ABSENT.to_owned(), grams),
         String::new(),
     ]);
-    let header = ["Started (UTC)", "Command", "Duration", "Energy", "CO2eq", "Ended"];
+    let header = ["Started (UTC)", "Run", "Duration", "Energy", "CO2eq", "Ended"];
     with_notes(table(&header, &rows, &[false, false, true, true, true, false]), notes(report))
 }
 
@@ -73,7 +73,7 @@ pub fn spans(report: &Report) -> String {
 /// One row per run, values at full precision in the record's units, an
 /// empty cell where a value is absent.
 pub fn runs_csv(report: &Report) -> String {
-    let mut csv = String::from("file,started,frontend,command,ended,code,signal,duration_s,energy_kwh,emissions_g\n");
+    let mut csv = String::from("file,started,frontend,project,name,command,ended,code,signal,duration_s,energy_kwh,emissions_g\n");
     for run in &report.runs {
         let outcome = run.outcome.as_ref();
         let session = run.session.as_ref();
@@ -81,6 +81,8 @@ pub fn runs_csv(report: &Report) -> String {
             run.file.clone(),
             run.started.to_rfc3339(),
             run.frontend.clone(),
+            run.project.clone().unwrap_or_default(),
+            run.name.clone().unwrap_or_default(),
             tracked(run),
             run.ended().unwrap_or_default(),
             number(outcome.and_then(|outcome| outcome.code)),
@@ -199,7 +201,7 @@ fn short(command: &str) -> String {
 }
 
 fn run_row(run: &Run) -> Vec<String> {
-    let command = short(&tracked(run));
+    let command = run.name.clone().unwrap_or_else(|| short(&tracked(run)));
     let command = if command.chars().count() > COMMAND_WIDTH {
         format!("{}…", command.chars().take(COMMAND_WIDTH - 1).collect::<String>())
     } else {

@@ -342,6 +342,8 @@ mod tests {
                     location: None,
                 },
                 epochs: None,
+                project: None,
+                name: None,
             },
             probe: record::Probe {
                 candidates: Vec::new(),
