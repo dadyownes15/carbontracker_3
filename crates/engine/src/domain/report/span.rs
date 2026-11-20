@@ -138,7 +138,11 @@ fn span_warnings(selection: &SourceSelection, coverage: &Coverage, estimated: Ve
     if !absent.is_empty() {
         warnings.push(ReportWarning::NoIntensity { sources: absent });
     }
-    let held = labels(coverage.intensities, |id| coverage.intensity_samples.get(id).copied().unwrap_or(0) == 0);
+    // Likewise, only a measured intensity can be held.
+    let held = labels(coverage.intensities, |id| {
+        coverage.intensities[id].fidelity() == Fidelity::Measured
+            && coverage.intensity_samples.get(id).copied().unwrap_or(0) == 0
+    });
     if !held.is_empty() {
         warnings.push(ReportWarning::HeldIntensity { sources: held });
     }
@@ -257,13 +261,13 @@ mod tests {
         SourceId::new(ProviderId(3), 0)
     }
 
-    /// [catalog] with the CPU on `dk1` and the GPU on `se3`.
+    /// [catalog] with the CPU on `dk1` and the GPU on `se3`, both measured.
     fn catalog_with_grids() -> SourceCatalog {
         let mut catalog = catalog();
         for id in [dk1(), se3()] {
             catalog.descriptions.insert(
                 id,
-                SourceDescription::Intensity { location: crate::domain::GridLocation::Global, fidelity: Fidelity::Stated },
+                SourceDescription::Intensity { location: crate::domain::GridLocation::Global, fidelity: Fidelity::Measured },
             );
         }
         catalog.pairs = HashMap::from([(cpu(), dk1()), (gpu(), se3())]);
@@ -341,6 +345,27 @@ mod tests {
         let per_source = [(cpu(), used(5.0, Some(1.0))), (gpu(), used(5.0, Some(1.0)))];
         let warnings = warn(&[(cpu(), 4), (gpu(), 4)], &per_source, &[(se3(), 1)]);
         assert_eq!(warnings, vec![ReportWarning::HeldIntensity { sources: vec![label(dk1())] }]);
+    }
+
+    /// AC/PROF-49
+    #[test]
+    fn a_fixed_intensity_is_never_held() {
+        let catalog = catalog_with_grids();
+        let sources: HashMap<_, _> = [cpu(), gpu()].map(|id| (id, catalog.descriptions[&id].clone())).into();
+        let mut intensities = catalog.intensities_of([cpu(), gpu()]);
+        for fidelity in [Fidelity::Stated, Fidelity::Modelled, Fidelity::Assumed] {
+            if let Some(SourceDescription::Intensity { fidelity: held, .. }) = intensities.get_mut(&dk1()) {
+                *held = fidelity;
+            }
+            let coverage = Coverage {
+                sources: &sources,
+                per_source: &HashMap::new(),
+                samples: &HashMap::from([(cpu(), 4), (gpu(), 4)]),
+                intensities: &intensities,
+                intensity_samples: &HashMap::from([(se3(), 1)]),
+            };
+            assert_eq!(span_warnings(&SourceSelection::All, &coverage, Vec::new()), vec![], "{fidelity:?}");
+        }
     }
 
     /// AC/PROF-5, AC/PROF-51

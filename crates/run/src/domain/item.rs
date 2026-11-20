@@ -80,6 +80,11 @@ pub enum Outcome {
 pub trait Block: Send + Sync + fmt::Debug {
     /// The lines as printed, prefix included where it belongs.
     fn lines(&self, layout: &Layout) -> Vec<String>;
+
+    /// Warnings about the block's figures, printed apart from it.
+    fn warnings(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// How the console lays out its blocks.

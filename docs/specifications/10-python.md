@@ -240,7 +240,7 @@ session**, on plain and `async` functions; the arguments are
 reaches a notebook cell and keeps progress bars whole. <!-- AC/PY-32 -->
 
 **`verbose=0` prints only warnings and errors**; any `verbose` of 1 or more
-prints everything, as 1. <!-- AC/PY-33 -->
+prints everything, as 1. What each prints is [12](12-output.md). <!-- AC/PY-33 -->
 
 **`log_dir=None` writes nothing.** <!-- AC/PY-34 -->
 
@@ -249,7 +249,8 @@ prints everything, as 1. <!-- AC/PY-33 -->
 `log_file_prefix`), holding `run-<id>.ct` and `output.log`. Trackers started
 together never share one. <!-- AC/PY-35 -->
 
-**`output.log` holds the whole output, whatever `verbose` says.** <!-- AC/PY-36 -->
+**`output.log` holds the whole output, whatever `verbose` says**, as
+[12](12-output.md) states. <!-- AC/PY-36 -->
 
 **A `log_dir` that cannot be written is a tracking failure**, raised as
 `TrackingError` unless `ignore_errors`. <!-- AC/PY-37 -->

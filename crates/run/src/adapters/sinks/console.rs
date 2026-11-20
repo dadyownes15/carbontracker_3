@@ -1,9 +1,11 @@
 //! [ConsoleSink]: a run for people, on a terminal or in `output.log`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 
-use carbontracker::{Observation, SessionReport, SourceDescription, SourceId, SpanId, TrackerEvent};
+use carbontracker::{
+    GridLocation, Observation, ReportWarning, SessionReport, SourceDescription, SourceId, SpanId, TrackerEvent,
+};
 use carbontracker_providers::ProbeProgress;
 
 use super::Verbosity;
@@ -11,8 +13,9 @@ use crate::domain::item::{Block, Layout, Outcome, Started};
 use crate::domain::presentation::{self, PREFIX, Ready, events};
 use crate::ports::Sink;
 
-/// What is measured, the closing block, and at [Verbosity::Everything] every
-/// probe step and event, stamped with the time of day.
+/// Warnings and errors at every verbosity; from [Verbosity::Normal] what is
+/// measured and the closing block; at [Verbosity::Everything] every probe
+/// step, event and readout, stamped with the time of day.
 pub struct ConsoleSink {
     out: Box<dyn Write + Send>,
     verbosity: Verbosity,
@@ -24,9 +27,14 @@ pub struct ConsoleSink {
     /// The epochs monitored, for 2.4.7's interrupted line.
     monitor: Option<u64>,
     now: Box<dyn FnMut() -> String + Send>,
-    /// For naming spans in later events, and sources in failed readouts.
+    /// For naming spans in later events, and sources in failed reads.
     spans: HashMap<SpanId, String>,
     sources: HashMap<SourceId, SourceDescription>,
+    served_by: HashMap<SourceId, &'static str>,
+    /// Whether the user asked for the world-average grid.
+    global: bool,
+    /// The span warnings printed so far, each printed once per run.
+    span_warnings: HashSet<String>,
 }
 
 impl ConsoleSink {
@@ -45,7 +53,10 @@ impl ConsoleSink {
             monitor: None,
             now: Box::new(|| chrono::Local::now().format("%H:%M:%S").to_string()),
             spans: HashMap::new(),
+            span_warnings: HashSet::new(),
             sources: HashMap::new(),
+            served_by: HashMap::new(),
+            global: false,
         }
     }
 
@@ -100,6 +111,26 @@ impl ConsoleSink {
         )
     }
 
+    /// `warning` without the sources the user asked for; `None` when every
+    /// source in it was asked for.
+    fn without_asked(&self, warning: &ReportWarning) -> Option<ReportWarning> {
+        let ReportWarning::Estimated { sources } = warning else {
+            return Some(warning.clone());
+        };
+        if !self.global {
+            return Some(warning.clone());
+        }
+        // The engine labels an intensity source by its description.
+        let world: Vec<String> = self
+            .sources
+            .values()
+            .filter(|source| matches!(source, SourceDescription::Intensity { location: GridLocation::Global, .. }))
+            .map(ToString::to_string)
+            .collect();
+        let sources: Vec<String> = sources.iter().filter(|source| !world.contains(source)).cloned().collect();
+        (!sources.is_empty()).then_some(ReportWarning::Estimated { sources })
+    }
+
     /// The session's closing block, in the layout.
     fn closing(&mut self, report: &SessionReport) -> io::Result<()> {
         match self.layout.clone() {
@@ -133,9 +164,6 @@ impl ConsoleSink {
                 }
             }
         }
-        for note in presentation::notes(report) {
-            self.say(&note)?;
-        }
         if matches!(self.layout, Layout::Legacy { .. }) {
             self.say(presentation::FINISHED)?;
         }
@@ -157,6 +185,8 @@ impl Sink for ConsoleSink {
 
     fn start(&mut self, started: &Started) -> io::Result<()> {
         self.sources = started.catalog.sources.clone();
+        self.served_by = started.served_by.clone();
+        self.global = started.header.config.global();
         self.monitor = started.header.epochs.as_ref().map(|epochs| epochs.monitor);
         if !self.normal() {
             return Ok(());
@@ -192,7 +222,7 @@ impl Sink for ConsoleSink {
                     self.log(&events::marked(&name, &entry.kind, entry.amount))?;
                 }
             }
-            TrackerEvent::ReadoutLanded { outcomes, .. } if everything => {
+            TrackerEvent::ReadoutLanded { outcomes, .. } => {
                 let mut outcomes: Vec<_> = outcomes.iter().collect();
                 outcomes.sort_by_key(|(source, _)| **source);
                 let mut figures = Vec::new();
@@ -203,30 +233,46 @@ impl Sink for ConsoleSink {
                             events::figure(description, samples)
                                 .map(|figure| format!("{label} {figure}")),
                         ),
-                        // Nothing new to show; the last value still stands.
+                        // Healthy: the last value still stands.
                         Observation::Unchanged | Observation::Skipped(_) => {}
                         Observation::Failed(error) => {
-                            self.log(&events::source_failed(&label, &error.to_string()))?
+                            let provider = self.served_by.get(source).copied();
+                            self.warning(&presentation::failed_read(&label, provider, &error.to_string()))?;
                         }
                     }
                 }
-                if !figures.is_empty() {
+                if everything && !figures.is_empty() {
                     self.log(&events::readout(&figures))?;
                 }
             }
-            TrackerEvent::CommandRefused { span, error } if everything => {
+            TrackerEvent::CommandRefused { span, error } => {
                 let name = self.span_name(*span);
-                self.log(&events::refused(&name, &error.to_string()))?;
+                self.warning(&presentation::refused(&name, &error.to_string()))?;
             }
             TrackerEvent::SpanSettled { report } => {
                 if everything {
-                    for line in events::settled(report) {
-                        self.log(&line)?;
+                    self.log(&events::settled(report))?;
+                }
+                let warnings: Vec<_> =
+                    report.warnings.iter().filter_map(|warning| self.without_asked(warning)).collect();
+                for warning in warnings {
+                    let text = presentation::span_warning(&report.span_name, &warning.to_string());
+                    if self.span_warnings.insert(text.clone()) {
+                        self.warning(&text)?;
                     }
                 }
                 self.spans.remove(&report.span_id);
             }
-            TrackerEvent::SessionEnded { report } if self.normal() => self.closing(report)?,
+            TrackerEvent::SessionEnded { report } => {
+                let warnings: Vec<_> =
+                    report.warnings.iter().filter_map(|warning| self.without_asked(warning)).collect();
+                for warning in warnings {
+                    self.warning(&warning.to_string())?;
+                }
+                if self.normal() {
+                    self.closing(report)?;
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -264,11 +310,13 @@ impl Sink for ConsoleSink {
     }
 
     fn block(&mut self, block: &dyn Block) -> io::Result<()> {
-        if !self.normal() {
-            return Ok(());
+        if self.normal() {
+            for line in block.lines(&self.layout) {
+                writeln!(self.out, "{line}")?;
+            }
         }
-        for line in block.lines(&self.layout) {
-            writeln!(self.out, "{line}")?;
+        for warning in block.warnings() {
+            self.warning(&warning)?;
         }
         Ok(())
     }

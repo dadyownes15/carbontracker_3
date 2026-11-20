@@ -1,7 +1,9 @@
 //! A run through its public seam: [start], spans, [RunHandle::finish], over
 //! pinned sources from the default registry: no hardware, no network.
 
-use std::io::{self, Write};
+mod common;
+
+use std::io;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -9,29 +11,10 @@ use std::time::Duration;
 use carbontracker::{GramsCo2ePerKwh, GridLocation, PowerDomain, SourceSelection, TrackerConfig, TrackerEvent, Watts};
 use carbontracker_providers::{GridConfig, Pinned, ProbeConfig};
 use carbontracker_run::{
-    LatestForecast, Console, Folder, Layout, Outcome, Predictor, RunConfig, Sink, Started, Verbosity,
+    LatestForecast, Console, ConsoleSink, Folder, Layout, Outcome, Predictor, RunConfig, Sink, Started, Verbosity,
     Work, record, standard_sinks, start,
 };
-
-/// A writer the test reads back.
-#[derive(Clone, Default)]
-struct Shared(Arc<Mutex<Vec<u8>>>);
-
-impl Write for Shared {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-impl Shared {
-    fn text(&self) -> String {
-        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
-    }
-}
+use common::Shared;
 
 fn probe() -> ProbeConfig {
     ProbeConfig {
@@ -183,6 +166,51 @@ fn everything_shows_each_event_but_output_log_keeps_to_normal() {
     assert!(!output.contains("work started"), "{output}");
 }
 
+/// Whether `line`, after the prefix, starts with a time `HH:MM:SS`.
+fn timed(line: &str) -> bool {
+    let rest = line.strip_prefix("CarbonTracker: ").unwrap_or("").as_bytes();
+    rest.len() > 8
+        && [0, 1, 3, 4, 6, 7].iter().all(|&at| rest[at].is_ascii_digit())
+        && rest[2] == b':'
+        && rest[5] == b':'
+}
+
+/// AC/OUT-1, AC/OUT-4, AC/OUT-5, AC/OUT-8, AC/OUT-9, AC/OUT-10, AC/OUT-12, AC/OUT-14
+#[test]
+fn each_verbosity_only_adds_lines_and_output_log_is_normal() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = Folder::claim(dir.path(), None).unwrap();
+    let logs = Some(folder.path().display().to_string());
+    let (quiet, normal, everything) = (Shared::default(), Shared::default(), Shared::default());
+    let mut sinks = standard_sinks(console(&everything, Verbosity::Everything), Some(&folder)).unwrap();
+    for (out, verbosity) in [(&quiet, Verbosity::Quiet), (&normal, Verbosity::Normal)] {
+        let layout = Layout::Summary { title: "work".to_owned() };
+        sinks.push(Box::new(ConsoleSink::new(out.clone(), verbosity, layout, logs.clone())));
+    }
+    one_span(config(sinks));
+
+    assert_eq!(quiet.text(), "");
+    let normal = normal.text();
+    assert!(normal.contains("CarbonTracker: power ") && normal.contains("ready. Starting work\n"), "{normal}");
+    assert!(normal.contains("work summary:\n"), "{normal}");
+    assert_eq!(std::fs::read_to_string(folder.output_log()).unwrap(), normal);
+
+    let everything = everything.text();
+    assert!(everything.lines().any(timed), "{everything}");
+    let untimed: String = everything.lines().filter(|line| !timed(line)).map(|line| format!("{line}\n")).collect();
+    assert_eq!(untimed, normal);
+}
+
+/// AC/OUT-24
+#[test]
+fn a_failed_sink_is_a_warning_at_quiet() {
+    let out = Shared::default();
+    let mut sinks = vec![Box::new(Failing) as Box<dyn Sink>];
+    sinks.extend(standard_sinks(console(&out, Verbosity::Quiet), None).unwrap());
+    one_span(config(sinks));
+    assert_eq!(out.text(), "CarbonTracker: WARNING - the failing sink failed and stopped: disk full\n");
+}
+
 /// AC/REC-1, AC/REC-6, AC/REC-7
 #[test]
 fn the_record_starts_with_the_run_the_probe_and_the_catalog() {
@@ -284,9 +312,9 @@ impl Sink for Failing {
     }
 }
 
-/// AC/RUN-9, AC/RUN-14
+/// AC/RUN-9, AC/RUN-14, AC/OUT-13, AC/OUT-24
 #[test]
-fn a_failing_sink_is_named_after_the_summary_and_the_others_go_on() {
+fn a_failing_sink_is_named_before_the_summary_and_the_others_go_on() {
     let out = Shared::default();
     let mut sinks = vec![Box::new(Failing) as Box<dyn Sink>];
     sinks.extend(standard_sinks(console(&out, Verbosity::Normal), None).unwrap());
@@ -297,7 +325,7 @@ fn a_failing_sink_is_named_after_the_summary_and_the_others_go_on() {
     let warning = console
         .find("the failing sink failed and stopped: disk full")
         .expect("the warning");
-    assert!(summary < warning, "{console}");
+    assert!(warning < summary, "{console}");
 }
 
 /// AC/RUN-9
@@ -755,16 +783,11 @@ fn a_sink_that_errs_is_finished_once_and_dropped_while_the_others_go_on() {
 
     assert_eq!(*failing.calls_after.lock().unwrap(), 0, "nothing after its error");
     assert_eq!(*failing.finishes.lock().unwrap(), 1);
+    // Named right after the event it failed on.
     let seen = other.seen();
-    assert_eq!(
-        seen[seen.len() - 4..],
-        [
-            "outcome Exited { code: 0 }".to_owned(),
-            "session".to_owned(),
-            "warning the counting sink failed and stopped: disk full".to_owned(),
-            "finish".to_owned()
-        ]
-    );
+    let first_event = seen.iter().position(|item| item == "started").unwrap() + 1;
+    assert_eq!(seen[first_event + 1], "warning the counting sink failed and stopped: disk full", "{seen:?}");
+    assert_eq!(seen[seen.len() - 3..], ["outcome Exited { code: 0 }", "session", "finish"]);
 }
 
 /// Counts the items it sees, sums the settled spans' energy, and notes the
@@ -1037,4 +1060,43 @@ fn a_world_average_nobody_asked_for_says_why() {
 
     let asked = console_for(GridConfig { location: Some(GridLocation::Global), ..GridConfig::default() });
     assert!(!asked.contains("WARNING - the world-average grid"), "{asked}");
+}
+
+/// AC/OUT-13, AC/OUT-22, AC/OUT-32
+#[test]
+fn a_modelled_source_nobody_asked_for_is_a_warning_at_start() {
+    let (out, everything) = (Shared::default(), Shared::default());
+    let mut sinks = standard_sinks(console(&out, Verbosity::Quiet), None).unwrap();
+    let layout = Layout::Summary { title: "work".to_owned() };
+    sinks.push(Box::new(ConsoleSink::new(everything.clone(), Verbosity::Everything, layout, None)));
+    let mut country = config(sinks);
+    country.probe.grid = GridConfig {
+        location: Some(GridLocation::Country { country_code: "DK".to_owned() }),
+        ..GridConfig::default()
+    };
+    country.probe.pinned.intensity = None;
+    let run = start(country, |_, _| ()).unwrap();
+    let at_start = out.text();
+    let span = run.start_span("work", None, SourceSelection::All);
+    std::thread::sleep(Duration::from_millis(50));
+    run.stop_span(span, Work::default());
+    run.finish(Outcome::Exited { code: 0 }).unwrap();
+    let [warning] = at_start.lines().collect::<Vec<_>>()[..] else { panic!("{at_start}") };
+    assert!(warning.starts_with("CarbonTracker: WARNING - "), "{warning}");
+    assert!(warning.contains("DK") && warning.contains("modelled"), "{warning}");
+
+    // At Everything, no event line comes between the ready line and the warning.
+    let everything = everything.text();
+    let lines: Vec<&str> = everything.lines().collect();
+    let at = |wanted: &dyn Fn(&str) -> bool| lines.iter().position(|line| wanted(line)).unwrap_or_else(|| panic!("{everything}"));
+    let ready = at(&|line| line.contains("ready. Starting work"));
+    let warned = at(&|line| line == warning);
+    let span_started = at(&|line| timed(line) && line.ends_with("work started"));
+    assert_eq!(warned, ready + 1, "{everything}");
+    assert!(warned < span_started, "{everything}");
+
+    // A stated draw and intensity on the world-average grid, as asked.
+    let asked = Shared::default();
+    one_span(config(standard_sinks(console(&asked, Verbosity::Quiet), None).unwrap()));
+    assert_eq!(asked.text(), "");
 }

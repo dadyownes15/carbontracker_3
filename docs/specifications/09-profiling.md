@@ -214,7 +214,7 @@ of the total. <!-- AC/PROF-46 -->
 |---|---|
 | `ThinCoverage` | Names each selected `Measured` power source with fewer than two samples inside the span; a fixed figure holds one level and is never thin | <!-- AC/PROF-47 -->
 | `NoIntensity` | Names each power source that drew energy with no intensity, so emissions are absent | <!-- AC/PROF-48 -->
-| `HeldIntensity` | Names each intensity source that landed no sample inside the span, so emissions rest on an earlier one | <!-- AC/PROF-49 -->
+| `HeldIntensity` | Names each `Measured` intensity source that landed no sample inside the span, so emissions rest on an earlier one; a fixed figure is never held | <!-- AC/PROF-49 -->
 | `Estimated` | A counted source, or its intensity source, is `Modelled` or `Assumed` | <!-- AC/PROF-50 -->
 | `NoSelectedSources` | The selection is not `All` and nothing on this host matched it | <!-- AC/PROF-51 -->
 

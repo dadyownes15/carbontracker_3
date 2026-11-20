@@ -154,6 +154,47 @@ def test_verbose_zero_still_prints_an_error(capsys):
     assert "Continued training without monitoring" in capsys.readouterr().out
 
 
+# AC/OUT-21
+# AC/OUT-28
+def test_verbose_zero_prints_the_reports_warnings_without_the_closing_block(capsys):
+    # The country table's figure is modelled, so the report warns of an estimate.
+    CarbonTracker(verbose=0, country="DK", power=10.0, update_interval=60).stop()
+    out = capsys.readouterr().out
+    assert "WARNING - part of this total is an estimate" in out, out
+    assert "Actual consumption" not in out and "Finished monitoring." not in out, out
+
+
+# AC/OUT-32
+# AC/OUT-35
+def test_an_asked_for_world_average_warns_nothing(capsys):
+    CarbonTracker(verbose=0, global_=True, power=10.0, update_interval=0.05).stop()
+    assert capsys.readouterr().out == ""
+
+
+# AC/OUT-28
+# AC/OUT-34
+def test_verbose_zero_prints_the_predictions_warning_without_its_block(capsys):
+    tracker = CarbonTracker(epochs=2, epochs_before_pred=1, verbose=0, **PINNED)
+    run_epochs(tracker, 1)
+    tracker.stop()
+    out = capsys.readouterr().out
+    warnings = [line for line in out.splitlines() if "WARNING - " in line]
+    assert len(warnings) == 1 and "predicted from 1 epoch" in warnings[0], out
+    assert "Predicted consumption" not in out, out
+
+
+# AC/OUT-25
+def test_a_refused_stop_is_a_warning_naming_the_span(capsys):
+    tracker = CarbonTracker(verbose=0, **PINNED)
+    outer = tracker.span("outer").start()
+    inner = tracker.span("inner", parent=outer).start()
+    outer.stop()  # stops inner with it, so the engine refuses the next stop
+    inner.stop()
+    tracker.stop()
+    [warning] = [line for line in capsys.readouterr().out.splitlines() if "WARNING - " in line]
+    assert f"span {inner.id}" in warning and "refused" in warning, warning
+
+
 # AC/PY-10
 def test_epochs_before_pred_zero_predicts_nothing(capsys):
     tracker = CarbonTracker(epochs=3, epochs_before_pred=0, **PINNED)
@@ -688,7 +729,8 @@ def test_without_a_log_dir_nothing_is_written(tmp_path, monkeypatch):
 def test_output_log_holds_the_whole_output_whatever_verbose_says(tmp_path, capsys):
     tracker = CarbonTracker(epochs=2, verbose=0, log_dir=tmp_path, **PINNED)
     run_epochs(tracker, 2)
-    assert capsys.readouterr().out == ""
+    out = capsys.readouterr().out
+    assert all("WARNING - " in line for line in out.splitlines()), out
 
     [log] = tmp_path.glob("*/output.log")
     text = log.read_text()
@@ -1140,6 +1182,7 @@ def test_the_2_4_7_parser_keeps_its_names(tmp_path, capsys):
     from carbontracker import parser, report
 
     two_runs(tmp_path)
+    capsys.readouterr()  # the runs' own warnings
     total = report(tmp_path).total
     energy, co2eq, equivalents = parser.aggregate_consumption(tmp_path)
     assert (energy, co2eq) == pytest.approx((total.energy_kwh, total.emissions_g))
