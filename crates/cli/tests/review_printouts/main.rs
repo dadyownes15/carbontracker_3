@@ -200,6 +200,8 @@ impl Shell {
             .env("HOME", self.home.path())
             .env_remove("XDG_CONFIG_HOME")
             .env_remove("CARBONTRACKER_EM_KEY")
+            // Nothing listens there: a key check never reaches the network.
+            .env("CARBONTRACKER_EM_URL", "http://127.0.0.1:9/v3")
             .env("CLICOLOR_FORCE", "1")
             .envs(self.env.iter().copied())
             .stdin(Stdio::piped())

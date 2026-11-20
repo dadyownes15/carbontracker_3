@@ -25,6 +25,7 @@ mod domain;
 mod ports;
 
 pub use adapters::constant::StaticProvider;
+pub use adapters::intensity::electricity_maps::{check_key, KeyCheck, URL_VARIABLE};
 pub use adapters::system::config_file;
 pub use adapters::system::process::process_tree;
 pub use application::{ForecastReport, Forecaster, ProbeProgress, ProviderRegistry, Resolution};

@@ -8,7 +8,8 @@ with the Python package ([10](10-python.md)).
 ```
 carbontracker [OPTIONS] <COMMAND>...         track a whole command
 carbontracker check [OPTIONS]                show what would be measured
-carbontracker init                           save an API key
+carbontracker init                           save an API key (a menu on a terminal)
+carbontracker init slurm [SCRIPT]            run a Slurm script under carbontracker
 carbontracker report [--spans] [--csv [-o FILE]] <PATH>...   sum the runs recorded
 ```
 
@@ -97,6 +98,9 @@ over the config file `init` writes.** <!-- AC/FE-42 -->
 **A config file others can read gets a warning on stderr**, and the run goes
 on. <!-- AC/FE-43 -->
 
+**`CARBONTRACKER_EM_URL` replaces the address Electricity Maps is asked at**,
+for probing and for the key check, so a proxy or a mirror can stand in. <!-- AC/FE-64 -->
+
 ## What the run prints
 
 **Before the command starts, stderr lists what is measured**: a line for each
@@ -152,15 +156,61 @@ rows. <!-- AC/FE-60 -->
 
 ## `init`
 
+**On a terminal, `init` offers a menu**: add or change the Electricity Maps
+key (naming the saved one by its hint), attach carbontracker to a Slurm
+script, check what would be measured, or quit. It comes back to the menu
+after each until the user quits. <!-- AC/FE-65 -->
+
 **`init` asks for the Electricity Maps key**: with a hidden prompt on a
 terminal, otherwise one line from stdin. It is never a flag, so it never lands
 in shell history. <!-- AC/FE-55 -->
 
-**`init` saves the key, then runs `check`** so the user sees it take effect. <!-- AC/FE-9 -->
+**The key is checked with Electricity Maps before it is saved.** A key that
+works is saved, and the zones it reaches are named. <!-- AC/FE-66 -->
+
+**A refused key is never saved**: on a terminal the key is asked for again;
+otherwise `init` exits 2. <!-- AC/FE-67 -->
+
+**When Electricity Maps cannot be reached, the key is saved unchecked** with
+a warning naming why. On a terminal the user chooses between saving it
+unchecked and trying again. <!-- AC/FE-68 -->
+
+**`init` saves the key, then runs `check`** so the user sees it take effect,
+including the warning when the key does not reach this machine's zone. <!-- AC/FE-9 -->
 
 **The config file is readable by its owner only** (mode `600` on Unix). <!-- AC/FE-56 -->
 
 **An empty key exits 2 and saves nothing.** <!-- AC/FE-57 -->
+
+## `init slurm`
+
+**`init slurm SCRIPT` writes a wrapper next to the script**, named
+`<stem>.ct.<ext>` (`train.sbatch` gives `train.ct.sbatch`) or `<name>.ct`
+without an extension, executable, and prints the `sbatch` line that submits
+it. <!-- AC/FE-69 -->
+
+**The wrapper keeps the `#SBATCH` lines Slurm reads** (those before the first
+command) **and the script's interpreter**, then runs the script by its
+absolute path with that interpreter, under carbontracker by its absolute
+path, passing the job's arguments on. <!-- AC/FE-70 -->
+
+**Runs of the wrapper are logged to `--log-dir`**, relative to the folder the
+job is submitted from. <!-- AC/FE-71 -->
+
+**A wrapper `init` wrote before is replaced; any other file at that path is
+left alone**, and `init slurm` exits 2 naming it. <!-- AC/FE-72 -->
+
+**A script that is itself a wrapper exits 2.** <!-- AC/FE-73 -->
+
+**A script without `#SBATCH` lines is warned about**, and the wrapper is
+still written. <!-- AC/FE-74 -->
+
+**Without SCRIPT, `init slurm` lists the Slurm scripts under the current
+folder**, newest first, with each one's job name, partition and time, marking
+those already wrapped. On a terminal it asks which to wrap; otherwise it exits
+2 after the list, asking for the script by name. <!-- AC/FE-75 -->
+
+**`init slurm` never changes the script and never submits a job.** <!-- AC/FE-76 -->
 
 ## `report` — reading runs back
 
@@ -212,11 +262,22 @@ keeps it whole. The table's times are UTC, and its header says so. <!-- AC/FE-63
 - **Only `session` lines are summed** so that a total in a paper is never
   part prediction; 2.4.7 summed predictions for runs that stopped early.
 - **The key is never a flag** so that it never lands in shell history.
+- **An unreachable API saves the key unchecked** so that a login node without
+  internet, or a scripted setup, still gets the key; `check` says if it fails.
+- **A missing zone is a warning, not a refusal** so that a free key still
+  serves the zone it reaches, and the country aggregate when that is reachable.
+- **The wrapper calls carbontracker by absolute path** so that the job finds
+  it on the compute node without activating an environment first.
+- **The wrapper runs the script by absolute path** because Slurm runs a copy
+  of the batch script from its spool directory.
 
 ## Anchors
 
 ```anchor
 carbontracker_cli::run
+carbontracker_providers::check_key
+carbontracker_providers::KeyCheck
+carbontracker_providers::URL_VARIABLE
 carbontracker_run::Folder
 carbontracker_run::Report
 carbontracker_run::read_report
