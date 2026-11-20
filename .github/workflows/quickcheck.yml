@@ -5,7 +5,7 @@ name: quickcheck
 # engine or the suite changes, and nightly; the ones it has found are
 # replayed on every run of ci.yml. A pull request whose quickcheck/passed
 # matches the code it checks out was run locally with quickcheck/run.sh, and
-# is not run again. A push to main and the nightly run always run.
+# is not run again. A push to main or staging and the nightly run always run.
 on:
   pull_request:
     paths:
@@ -14,7 +14,7 @@ on:
       - "Cargo.lock"
       - ".github/workflows/quickcheck.yml"
   push:
-    branches: [main]
+    branches: [main, staging]
     paths:
       - "crates/engine/**"
       - "quickcheck/**"
