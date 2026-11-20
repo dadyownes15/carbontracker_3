@@ -42,7 +42,7 @@ PUE_2023 = 1.58
 EPOCH = "epoch"
 """The name of each epoch's span, which the prediction is made from."""
 
-DOMAINS = ("cpu", "gpu", "ram", "ane", "system")
+_DOMAINS = ("cpu", "gpu", "ram", "ane", "system")
 """The power domains a span can name in ``sources``."""
 
 class TrackingError(RuntimeError):
@@ -385,7 +385,7 @@ class CarbonTracker:
         """``sources`` as the native span's keywords."""
         if sources is None:
             return {}
-        domains = ", ".join(DOMAINS)
+        domains = ", ".join(_DOMAINS)
 
         def refuse(why: str) -> ValueError:
             return ValueError(f"sources={sources!r}: {why}; name domains ({domains}) or Sources from tracker.sources")
@@ -401,7 +401,7 @@ class CarbonTracker:
             raise refuse("selects nothing")
         if all(isinstance(source, str) for source in chosen):
             for name in chosen:
-                if name not in DOMAINS:
+                if name not in _DOMAINS:
                     is_id = name in self.sources
                     raise refuse(f"{name!r} is a source id, not a domain; pass the Source" if is_id else f"{name!r} is not a domain")
             return {"domains": chosen}
@@ -411,7 +411,7 @@ class CarbonTracker:
                     raise refuse(f"{source.label!r} is an intensity source; each power source brings its own")
                 # Sources compare by value, so only identity tells this tracker's apart.
                 if self.sources.get(source.id) is not source:
-                    raise refuse(f"{source.label!r} is not a source of this tracker")
+                    raise refuse(f"{source.label!r} is not one of this tracker's sources; take it from tracker.sources")
             return {"sources": [source.id for source in chosen]}
         if all(isinstance(source, (str, Source)) for source in chosen):
             raise refuse("mixes domain names and Sources")

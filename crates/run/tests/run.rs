@@ -939,7 +939,8 @@ fn a_source_that_is_never_read_again_is_in_one_readout_line() {
     }
 }
 
-/// AC/RUN-26, AC/REC-10
+/// AC/RUN-26
+/// AC/REC-10
 #[test]
 fn a_span_started_on_a_selection_is_recorded_with_it() {
     let dir = tempfile::tempdir().unwrap();

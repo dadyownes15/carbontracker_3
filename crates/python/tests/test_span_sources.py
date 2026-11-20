@@ -124,7 +124,7 @@ def test_a_spans_report_covers_only_the_sources_it_selected_billed_at_their_inte
     reports = settled(tmp_path)
     assert list(reports["gpu only"]["per_source"]) == [gpu.id]
     assert list(reports["cpu only"]["per_source"]) == [cpu.id]
-    # The stated intensity, 100 g/kWh, came with the GPU unasked.
+    # The GPU is billed at the stated 100 g/kWh.
     [usage] = reports["gpu only"]["per_source"].values()
     assert usage["energy_kwh"] > 0
     assert usage["emissions_g"] == pytest.approx(usage["energy_kwh"] * 100.0)

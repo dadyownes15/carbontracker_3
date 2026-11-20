@@ -47,6 +47,40 @@ pub fn selected(paced: &Paced, matches: impl Fn(SourceId) -> bool) -> Paced {
     paced.iter().filter(|&&(source, ..)| matches(source)).copied().collect()
 }
 
+/// Each open span's parent and the paced sources its selection matches, so
+/// its stop waits for what its start did.
+#[derive(Default)]
+pub struct OpenSpans(Mutex<HashMap<usize, (Option<usize>, Paced)>>);
+
+impl OpenSpans {
+    pub fn opened(&self, span: usize, parent: Option<usize>, paced: Paced) {
+        self.0.lock().expect("not poisoned").insert(span, (parent, paced));
+    }
+
+    /// The paced sources `span` waits for at its stop, `all` if it is not
+    /// open. It and its open descendants, which close with it, are dropped.
+    pub fn stopped(&self, span: usize, all: &Paced) -> Paced {
+        let mut open = self.0.lock().expect("not poisoned");
+        let within = |mut id: usize| loop {
+            match open.get(&id) {
+                Some(&(Some(parent), _)) if parent == span => return true,
+                Some(&(Some(parent), _)) => id = parent,
+                _ => return false,
+            }
+        };
+        let closed: Vec<usize> = open.keys().copied().filter(|&id| within(id)).collect();
+        for id in closed {
+            open.remove(&id);
+        }
+        open.remove(&span).map_or_else(|| all.clone(), |(_, paced)| paced)
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.0.lock().expect("not poisoned").len()
+    }
+}
+
 /// When a span may start, and which sources its start cut reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Start {
@@ -348,6 +382,27 @@ mod tests {
         let newest = HashMap::from([(NVML(), at(1.0)), (RAPL(), at(1.0))]);
         assert_eq!(ready(&both(), &newest, at(1.6)), at(2.0));
         assert_eq!(ready(&selected(&both(), |source| source == RAPL()), &newest, at(1.6)), at(1.6));
+    }
+
+    /// AC/PY-58
+    #[test]
+    fn a_span_stops_waiting_for_what_its_start_selected() {
+        let open = OpenSpans::default();
+        let rapl = selected(&both(), |source| source == RAPL());
+        open.opened(1, None, rapl.clone());
+        assert_eq!(open.stopped(1, &both()), rapl);
+        assert_eq!(open.stopped(1, &both()), both(), "a span no longer open waits for every paced source");
+    }
+
+    #[test]
+    fn a_span_closed_by_its_parents_stop_is_no_longer_kept() {
+        let open = OpenSpans::default();
+        open.opened(1, None, both());
+        open.opened(2, Some(1), Vec::new());
+        open.opened(3, Some(2), Vec::new());
+        open.opened(4, None, both());
+        open.stopped(1, &both());
+        assert_eq!(open.len(), 1);
     }
 
     /// AC/PRF-9

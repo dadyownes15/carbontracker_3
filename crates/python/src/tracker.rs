@@ -27,7 +27,7 @@ use pyo3::types::PyDict;
 
 use crate::convert;
 use crate::console_writer::PyWriter;
-use crate::profiler::{self, Epochs, Freshness, Paced, Projected};
+use crate::profiler::{self, Epochs, Freshness, OpenSpans, Paced, Projected};
 
 #[pyclass(module = "carbontracker._native")]
 pub struct Tracker {
@@ -35,9 +35,8 @@ pub struct Tracker {
     freshness: Arc<Freshness>,
     /// The sources a profiled span waits for, with their cooldowns.
     paced: Paced,
-    /// The paced sources of each open span whose selection leaves some out;
-    /// every other span waits for all of `paced`.
-    narrowed: Mutex<HashMap<usize, Paced>>,
+    /// Each open span's paced sources, for its stop.
+    open: OpenSpans,
     fetch_timeout: Duration,
     epochs: Arc<Epochs>,
     /// The longest an ended epoch takes to settle: the next readout, and its fetch.
@@ -182,7 +181,7 @@ impl Tracker {
             run: Mutex::new(Some(run)),
             freshness,
             paced,
-            narrowed: Mutex::new(HashMap::new()),
+            open: OpenSpans::default(),
             fetch_timeout,
             epochs: settled_epochs,
             settle_within,
@@ -219,9 +218,7 @@ impl Tracker {
     ) -> PyResult<usize> {
         let selection = self.selection(domains, sources)?;
         let paced = self.paced_for(&selection);
-        let span = self.with_run(|run| run.start_span(name, parent.map(SpanId::new), selection).get())?;
-        self.remember(span, paced);
-        Ok(span)
+        self.open_span(name, parent, selection, paced)
     }
 
     /// Report work on an open span. Never waits.
@@ -231,7 +228,7 @@ impl Tracker {
 
     /// Stop a span with the work it did. Never waits.
     fn stop_span(&self, span: usize, work: Vec<(String, f64)>) -> PyResult<()> {
-        self.forget(span);
+        self.open.stopped(span, &self.paced);
         let work: Work = work.into_iter().collect();
         self.with_run(|run| run.stop_span(SpanId::new(span), work))
     }
@@ -257,9 +254,8 @@ impl Tracker {
         let after = chrono::Utc::now();
         let before = began.elapsed().as_secs_f64();
         let cut = Instant::now();
-        let span = self.with_run(|run| run.start_span(name, parent.map(SpanId::new), selection).get())?;
         let read: Paced = paced.iter().filter(|(source, ..)| plan.read.contains(source)).copied().collect();
-        self.remember(span, paced);
+        let span = self.open_span(name, parent, selection, paced)?;
         let deadline = Instant::now() + self.fetch_timeout;
         let late = py.detach(|| self.await_fresh(span, &read, after, deadline));
         Ok((span, before, cut.elapsed().as_secs_f64(), late.iter().map(ToString::to_string).collect()))
@@ -270,7 +266,7 @@ impl Tracker {
     /// stop it. Returns the seconds waited and the sources whose read came late.
     fn stop_span_paced(&self, py: Python<'_>, span: usize, work: Vec<(String, f64)>) -> PyResult<(f64, Vec<String>)> {
         let began = Instant::now();
-        let paced = self.forget(span);
+        let paced = self.open.stopped(span, &self.paced);
         let mut late = Vec::new();
         if !paced.is_empty() {
             let after = chrono::Utc::now();
@@ -350,16 +346,11 @@ impl Tracker {
         })
     }
 
-    /// Keeps the paced sources of open `span`, if its selection left some out.
-    fn remember(&self, span: usize, paced: Paced) {
-        if paced.len() != self.paced.len() {
-            self.narrowed.lock().expect("not poisoned").insert(span, paced);
-        }
-    }
-
-    /// The paced sources `span` waits for, no longer kept once it stops.
-    fn forget(&self, span: usize) -> Paced {
-        self.narrowed.lock().expect("not poisoned").remove(&span).unwrap_or_else(|| self.paced.clone())
+    /// Start a span on `selection` and keep its `paced` sources until it stops.
+    fn open_span(&self, name: &str, parent: Option<usize>, selection: SourceSelection, paced: Paced) -> PyResult<usize> {
+        let span = self.with_run(|run| run.start_span(name, parent.map(SpanId::new), selection).get())?;
+        self.open.opened(span, parent, paced);
+        Ok(span)
     }
 
     /// The selection a span bills: `domains` by name, or `sources` by id.

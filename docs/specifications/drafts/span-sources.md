@@ -4,7 +4,7 @@ A Python span names the power sources it bills, so a span that runs on the
 GPU is cut and billed on the GPU alone. The selection is the engine's
 `SourceSelection` ([09](../09-profiling.md#selection)); the package passes it
 through `carbontracker-run` and adds no attribution rules of its own. A span
-that names no sources bills every source, as today. <!-- AC/PY-45 -->
+that names no sources bills every source. <!-- AC/PY-45 -->
 
 These rules extend the Python package ([10](../10-python.md)) and join it on
 adoption, keeping their numbers.
@@ -34,8 +34,9 @@ for source in gpus.sources.values():
 
 **`tracker.sources` gives the power sources this tracker measures, as
 `components` leaves them, as `Source`s by id**, from construction on, with
-the ids `session.sources` uses. A `Source` from it is how a span names one
-source: the caller never writes an id. <!-- AC/PY-49 -->
+the ids `session.sources` uses; it is empty when tracking could not start. A
+`Source` from it is how a span names one source: the caller never writes an
+id. <!-- AC/PY-49 -->
 
 **`Source.domain` is the power source's domain**, one of the five names
 above, and `None` for an intensity source. <!-- AC/PY-50 -->
