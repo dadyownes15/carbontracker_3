@@ -600,6 +600,34 @@ def test_a_stated_cpu_draw_is_served_as_static():
     assert cpu.fidelity == "stated"
 
 
+# AC/PY-49
+def test_tracker_sources_are_the_power_sources_by_id_with_the_sessions_ids():
+    tracker = CarbonTracker(verbose=0, **PINNED)
+    sources = tracker.sources
+    tracker.stop()
+    assert sources
+    assert all(id == source.id and source.kind == "power" for id, source in sources.items())
+    power = {id: source for id, source in tracker.session.sources.items() if source.kind == "power"}
+    assert sources == power
+
+
+# AC/PY-49
+def test_tracker_sources_hold_only_what_components_leaves():
+    with CarbonTracker(verbose=0, global_=True, intensity=100.0, gpu_power=50.0, components="gpu") as tracker:
+        domains = {source.domain for source in tracker.sources.values()}
+        stated = [source for source in tracker.sources.values() if source.fidelity == "stated"]
+    assert domains == {"gpu"}
+    assert len(stated) == 1
+
+
+# AC/PY-50
+def test_a_power_sources_domain_is_named_and_an_intensity_has_none():
+    with CarbonTracker(verbose=0, **PINNED) as tracker:
+        pass
+    assert [source.domain for source in tracker.sources.values()] == ["system"]
+    assert [source.domain for source in tracker.session.intensities.values()] == [None]
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="file modes are Unix")
 # AC/PY-6
 def test_a_config_file_others_can_read_gets_a_warning(tmp_path, capsys):

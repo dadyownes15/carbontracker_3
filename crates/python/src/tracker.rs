@@ -11,7 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use carbontracker::{
-    GramsCo2ePerKwh, GridLocation, PowerUsageEffectiveness, SourceKind, Timestamp, TrackerConfig, Watts,
+    GramsCo2ePerKwh, GridLocation, PowerUsageEffectiveness, SourceDescription, SourceId, SourceKind, Timestamp,
+    TrackerConfig, Watts,
 };
 use carbontracker_providers::{
     config_file, process_tree, Coordinates, CountryCode, GridConfig, Measure, Pinned, ProbeConfig,
@@ -39,6 +40,8 @@ pub struct Tracker {
     /// The longest an ended epoch takes to settle: the next readout, and its fetch.
     settle_within: Duration,
     config_warning: Option<String>,
+    /// The power sources being measured, as the engine's catalog reports them.
+    sources: Vec<(SourceId, SourceDescription)>,
     location: Option<String>,
     started_at: f64,
 }
@@ -163,6 +166,13 @@ impl Tracker {
             (description.kind() == SourceKind::Power).then(|| description.sample_kind())
         };
         let paced = profiler::paced(&started.cooldowns, power);
+        let sources = started
+            .catalog
+            .sources
+            .iter()
+            .filter(|(_, description)| description.kind() == SourceKind::Power)
+            .map(|(&id, description)| (id, description.clone()))
+            .collect();
         let fetch_timeout = started.fetch_timeout;
         let settle_within = Duration::from_secs_f64(interval) + fetch_timeout;
         Ok(Self {
@@ -173,6 +183,7 @@ impl Tracker {
             epochs: settled_epochs,
             settle_within,
             config_warning,
+            sources,
             location,
             started_at,
         })
@@ -181,6 +192,15 @@ impl Tracker {
     /// A warning about the config file, if others can read it.
     fn config_warning(&self) -> Option<String> {
         self.config_warning.clone()
+    }
+
+    /// The power sources being measured, by id.
+    fn sources<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let dict = PyDict::new(py);
+        for (id, description) in &self.sources {
+            dict.set_item(id.to_string(), convert::source(py, *id, description)?)?;
+        }
+        Ok(dict)
     }
 
     /// Open a span. Never waits.
@@ -287,7 +307,7 @@ impl Tracker {
     /// Waits until every source in `paced` has landed a sample stamped after
     /// `after`, cutting `span` again while a late source has no read queued.
     /// Returns the sources still late at `deadline`.
-    fn await_fresh(&self, span: usize, paced: &Paced, after: Timestamp, deadline: Instant) -> Vec<carbontracker::SourceId> {
+    fn await_fresh(&self, span: usize, paced: &Paced, after: Timestamp, deadline: Instant) -> Vec<SourceId> {
         loop {
             let slice = deadline.min(Instant::now() + profiler::ASK_EVERY);
             let late = self.freshness.wait(paced, after, slice);

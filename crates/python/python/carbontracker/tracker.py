@@ -33,7 +33,7 @@ from typing import Callable, Dict, Optional, Tuple
 
 from . import _native
 from . import profiler as _profiler
-from .types import Prediction, Session, _prediction, _session
+from .types import Prediction, Session, Source, _prediction, _session
 from .spans import RunningSpan, Span, innermost, untracked
 
 PUE_2023 = 1.58
@@ -236,10 +236,15 @@ class CarbonTracker:
         self._forked = False
         self._epoch: Optional[int] = None
         """The open epoch's span id."""
+        self.sources: Dict[str, Source] = {}
+        """The power sources this tracker measures, by id: those ``components``
+        leaves, with the ids ``session.sources`` uses. Empty if tracking
+        could not start."""
         self._native = None
         self._profiler: Optional[_profiler.Profiler] = None
         try:
             self._native = self._start()
+            self.sources = {id: Source(**source) for id, source in self._native.sources().items()}
             if self._profiling is not None:
                 self._profiler = _profiler.Profiler(self._native, self._profiling)
                 self._profiler.calibrate()

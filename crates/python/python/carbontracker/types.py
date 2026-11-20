@@ -35,6 +35,9 @@ class Source:
     """For people: ``"Apple M2 (gpu)"``, ``"grid DK-DK2"``."""
     fidelity: str
     """``"measured"``, ``"stated"``, ``"modelled"`` or ``"assumed"``."""
+    domain: Optional[str]
+    """A power source's domain: ``"cpu"``, ``"gpu"``, ``"ram"``, ``"ane"`` or
+    ``"system"``; ``None`` for an intensity source."""
 
 
 @dataclass(frozen=True)

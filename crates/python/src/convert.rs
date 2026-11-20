@@ -30,6 +30,11 @@ pub fn source<'py>(py: Python<'py>, id: SourceId, description: &SourceDescriptio
     dict.set_item("kind", kind)?;
     dict.set_item("label", presentation::source(description))?;
     dict.set_item("fidelity", description.fidelity().to_string())?;
+    let domain = match description {
+        SourceDescription::Power { domain, .. } => Some(domain.to_string()),
+        SourceDescription::Intensity { .. } => None,
+    };
+    dict.set_item("domain", domain)?;
     Ok(dict)
 }
 
