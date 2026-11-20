@@ -16,7 +16,7 @@ document says what each one reads and when.
 |---|---|---|---|---|
 | `energinet` | Energinet, Energi Data Service (`CO2Emis`, `CO2EmisProg`) | `DK-DK1`, `DK-DK2` | 5 min | Yes, to the end of the next day | <!-- AC/OPEN-2 unbuilt -->
 | `neso` | NESO, Carbon Intensity API | `GB` (Great Britain, national), and its regions `GB-NESO-1` to `GB-NESO-17` | 30 min | Yes, 48 h | <!-- AC/OPEN-3 unbuilt -->
-| `energy-charts` | Fraunhofer ISE, Energy-Charts (`co2eq`) | The countries it publishes `co2eq` for | 15 min | Yes | <!-- AC/OPEN-4 unbuilt -->
+| `energy-charts` | Fraunhofer ISE, Energy-Charts (`co2eq`) | The countries it publishes `co2eq` for | 15 min | Yes | <!-- AC/OPEN-4 -->
 
 **A source serves only the grids its table row names.** A location outside
 them is declined without a request. <!-- AC/OPEN-6 unbuilt -->
@@ -36,7 +36,7 @@ from the outward postcode `neso` sends to find a region. <!-- AC/OPEN-7 unbuilt 
 
 **A zone finer than a source publishes falls back to the zone's country**, as
 Electricity Maps does, and the description says the country, not the zone
-asked for: `SE-SE3` read from `energy-charts` is described as `SE`. <!-- AC/OPEN-11 unbuilt -->
+asked for: `SE-SE3` read from `energy-charts` is described as `SE`. <!-- AC/OPEN-11 -->
 
 **A NESO region is stated by NESO's region id**: 1 to 14 are the
 distribution regions, from `GB-NESO-1` North Scotland to `GB-NESO-14` South
@@ -79,7 +79,7 @@ Electricity Maps is asked for lifecycle figures. <!-- AC/OPEN-18 unbuilt -->
 |---|---|
 | `energinet` | 1 min | <!-- AC/OPEN-19 unbuilt -->
 | `neso` | 5 min | <!-- AC/OPEN-20 unbuilt -->
-| `energy-charts` | 5 min | <!-- AC/OPEN-21 unbuilt -->
+| `energy-charts` | 5 min | <!-- AC/OPEN-21 -->
 
 **A refusal for asking too often is `RateLimited`.** <!-- AC/OPEN-23 unbuilt -->
 
