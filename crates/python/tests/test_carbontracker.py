@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 import re
+import signal
 import tracemalloc
 import types
 import warnings
@@ -95,7 +96,10 @@ def test_all_fourteen_arguments_can_be_given_by_position(tmp_path):
 # AC/PY-15
 def test_the_prediction_is_kept_in_the_session():
     tracker = CarbonTracker(epochs=10, epochs_before_pred=2, verbose=0, **PINNED)
-    run_epochs(tracker, 2)
+    for _ in range(2):
+        tracker.epoch_start()
+        time.sleep(0.05)  # epochs of some length, so their energy is positive
+        tracker.epoch_end()
     prediction = tracker.stop().prediction
 
     assert prediction.measured == 2
@@ -723,7 +727,16 @@ def test_a_forked_child_runs_spans_untracked(tmp_path):
             except BaseException:
                 ok = False
             os._exit(0 if ok else 1)
-        _, status = os.waitpid(pid, 0)
+        deadline = time.monotonic() + 20.0
+        while True:
+            done, status = os.waitpid(pid, os.WNOHANG)
+            if done:
+                break
+            if time.monotonic() > deadline:
+                os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
+                pytest.fail("the forked child did not exit within 20 s")
+            time.sleep(0.05)
         assert os.waitstatus_to_exitcode(status) == 0
         assert work() == 1  # the parent still tracks
 
@@ -835,8 +848,10 @@ def test_it_never_exits_reads_input_or_restarts(tmp_path, monkeypatch):
     failing = CarbonTracker(epochs=3, ignore_errors=True, log_dir=tmp_path / "b", **PINNED)
     failing.epoch_end()
     failing.stop()
+    unstarted = CarbonTracker(epochs=3, **PINNED)
     with pytest.raises(TrackingError):
-        CarbonTracker(epochs=3, **PINNED).epoch_end()
+        unstarted.epoch_end()
+    unstarted.stop()
     # The key is given once, to the constructor: nothing sets it later.
     assert not [name for name in dir(CarbonTracker) if "key" in name.lower()]
 

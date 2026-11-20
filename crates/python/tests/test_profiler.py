@@ -54,7 +54,8 @@ def test_a_stated_source_is_never_waited_for():  # AC/PRF-9
     with profile() as tracker:
         with tracker.span("work"):
             pass
-    assert tracker.session.spans["work"].waited_s < 0.01
+    # A real wait costs at least one readout; this bound is well below one.
+    assert tracker.session.spans["work"].waited_s < 0.25
 
 
 def test_without_baseline_subtraction_dynamic_is_gross():  # AC/PRF-25
@@ -82,28 +83,32 @@ def test_without_baseline_subtraction_power_is_over_the_window():  # AC/PRF-25
 
 def test_a_stated_baseline_is_not_measured():  # AC/PRF-26
     began = time.perf_counter()
-    with profile(baseline_w=4.0, baseline_s=5.0) as tracker:
+    with profile(baseline_w=4.0, baseline_s=60.0) as tracker:
         with tracker.span("work"):
-            time.sleep(0.02)
-    # A measured baseline would take baseline_s = 5 s on its own.
-    assert time.perf_counter() - began < 4.0
+            time.sleep(0.2)
+    # A measured baseline would take baseline_s = 60 s on its own.
+    assert time.perf_counter() - began < 30.0
     assert tracker.session.baseline_w == 4.0
     report = tracker.session.spans["work"]
-    assert report.dynamic_power_w == pytest.approx(WATTS - 4.0, rel=0.05)
+    # The stated 4 W is subtracted over the span's whole window.
+    window = report.duration_s + report.waited_s
+    assert report.dynamic_energy_j == pytest.approx((WATTS - 4.0) * window, rel=0.01)
 
 
 def test_settling_waits_before_each_span_and_is_billed_outside_it():  # AC/PRF-24, AC/PRF-12
-    with profile(settle_s=0.05) as tracker:
+    settle_s = 0.5
+    with profile(settle_s=settle_s) as tracker:
         with tracker.span("outer"):
             with tracker.span("inner"):
                 time.sleep(0.01)
 
     spans = tracker.session.spans
-    assert spans["inner"].waited_s < 0.01
-    assert spans["inner"].duration_s == pytest.approx(0.01, abs=0.01)
+    # Settling is billed to the parent, so neither span's work time holds one.
+    assert spans["inner"].waited_s < settle_s / 2
+    assert 0.01 <= spans["inner"].duration_s < settle_s / 2
     # The inner span's settling is inside outer, and not in its work time.
-    assert spans["outer"].waited_s >= 0.05
-    assert spans["outer"].duration_s < 0.04
+    assert spans["outer"].waited_s >= settle_s
+    assert spans["outer"].duration_s < settle_s / 2
 
 
 def test_spans_are_timed_after_the_streams_finish(monkeypatch):  # AC/PRF-22
@@ -331,7 +336,7 @@ def test_overlapping_spans_on_a_flat_draw_share_the_idle_once():  # AC/PRF-15, A
                 overlap.wait()
                 time.sleep(seconds)
 
-        threads = [threading.Thread(target=request, args=(name, seconds)) for name, seconds in (("chat", 0.3), ("embed", 0.1))]
+        threads = [threading.Thread(target=request, args=(name, seconds)) for name, seconds in (("chat", 1.0), ("embed", 0.2))]
         for thread in threads:
             thread.start()
         for thread in threads:
