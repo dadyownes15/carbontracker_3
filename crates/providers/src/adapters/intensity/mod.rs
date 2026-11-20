@@ -4,3 +4,4 @@
 pub(crate) mod constant;
 pub(crate) mod country_average;
 pub(crate) mod electricity_maps;
+pub(crate) mod neso;

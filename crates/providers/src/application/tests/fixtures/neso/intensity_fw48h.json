@@ -1,0 +1,76 @@
+{
+  "data": [
+    {
+      "from": "2026-11-20T00:00Z",
+      "to": "2026-11-20T00:30Z",
+      "intensity": {
+        "forecast": 169,
+        "actual": null,
+        "index": "moderate"
+      }
+    },
+    {
+      "from": "2026-11-20T00:30Z",
+      "to": "2026-11-20T01:00Z",
+      "intensity": {
+        "forecast": 169,
+        "actual": null,
+        "index": "moderate"
+      }
+    },
+    {
+      "from": "2026-11-20T01:00Z",
+      "to": "2026-11-20T01:30Z",
+      "intensity": {
+        "forecast": 166,
+        "actual": null,
+        "index": "moderate"
+      }
+    },
+    {
+      "from": "2026-11-20T01:30Z",
+      "to": "2026-11-20T02:00Z",
+      "intensity": {
+        "forecast": 165,
+        "actual": null,
+        "index": "moderate"
+      }
+    },
+    {
+      "from": "2026-11-20T02:00Z",
+      "to": "2026-11-20T02:30Z",
+      "intensity": {
+        "forecast": 162,
+        "actual": null,
+        "index": "moderate"
+      }
+    },
+    {
+      "from": "2026-11-20T02:30Z",
+      "to": "2026-11-20T03:00Z",
+      "intensity": {
+        "forecast": 154,
+        "actual": null,
+        "index": "moderate"
+      }
+    },
+    {
+      "from": "2026-11-20T03:00Z",
+      "to": "2026-11-20T03:30Z",
+      "intensity": {
+        "forecast": 148,
+        "actual": null,
+        "index": "moderate"
+      }
+    },
+    {
+      "from": "2026-11-20T03:30Z",
+      "to": "2026-11-20T04:00Z",
+      "intensity": {
+        "forecast": 150,
+        "actual": null,
+        "index": "moderate"
+      }
+    }
+  ]
+}

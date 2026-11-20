@@ -1,0 +1,57 @@
+{
+  "data": [
+    {
+      "regionid": 13,
+      "dnoregion": "UKPN London",
+      "shortname": "London",
+      "data": [
+        {
+          "from": "2026-11-19T23:30Z",
+          "to": "2026-11-20T00:00Z",
+          "intensity": {
+            "forecast": 202,
+            "index": "high"
+          },
+          "generationmix": [
+            {
+              "fuel": "biomass",
+              "perc": 3.5
+            },
+            {
+              "fuel": "coal",
+              "perc": 0
+            },
+            {
+              "fuel": "imports",
+              "perc": 37.5
+            },
+            {
+              "fuel": "gas",
+              "perc": 35.3
+            },
+            {
+              "fuel": "nuclear",
+              "perc": 11
+            },
+            {
+              "fuel": "other",
+              "perc": 0
+            },
+            {
+              "fuel": "hydro",
+              "perc": 0.2
+            },
+            {
+              "fuel": "solar",
+              "perc": 0
+            },
+            {
+              "fuel": "wind",
+              "perc": 12.6
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
