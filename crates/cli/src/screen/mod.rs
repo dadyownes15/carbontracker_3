@@ -19,7 +19,8 @@ use ratatui::DefaultTerminal;
 use crate::args::Args;
 use check_view::CheckView;
 use init_app::{App, Deps};
-use live::Live;
+use crate::commands::candidate_of;
+use live::{KeyNote, Live};
 
 pub const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 /// How long a frame waits for a key before drawing again.
@@ -36,8 +37,17 @@ pub fn available() -> bool {
 }
 
 fn open_check(args: &Args) -> Result<CheckView, String> {
+    let keys = args
+        .keys()?
+        .iter()
+        .map(|(service, (key, _))| KeyNote {
+            service: service.name(),
+            hint: key.hint().to_string(),
+            candidate: candidate_of(*service),
+        })
+        .collect();
     let feed = run::start(args)?;
-    Ok(CheckView::new(Live::new(args.pue()), feed, args.verbose))
+    Ok(CheckView::new(Live::new(args.pue()).with_keys(keys), feed, args.verbose))
 }
 
 /// The check view until the user closes it; then what it showed, on stdout.

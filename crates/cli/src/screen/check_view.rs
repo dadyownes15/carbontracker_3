@@ -86,11 +86,24 @@ impl CheckView {
                 }
             }
             lines.push(Line::from(spans));
+            if let Some(failure) = &line.failure {
+                lines.push(Line::from(vec![
+                    Span::raw(" ".repeat(10)),
+                    Span::styled(format!("! failed: {failure}"), Style::new().fg(Color::Red)),
+                ]));
+            }
+        }
+        for warning in self.live.warnings() {
+            lines.push(Line::from(""));
+            for (index, text) in warning.lines().enumerate() {
+                let style = if index == 0 { Style::new().fg(Color::Yellow) } else { dim() };
+                lines.push(Line::from(Span::styled(text.to_owned(), style)));
+            }
         }
         if !self.verbose {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled("check -v lists every candidate and why it was or wasn't chosen", dim())));
-            frame.render_widget(Paragraph::new(lines), area);
+            frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
             return;
         }
 
@@ -154,7 +167,7 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::screen::live::Msg;
-    use crate::screen::live::tests::{forecast, intensity, power, readout};
+    use crate::screen::live::tests::{em_key, forecast, intensity, power, readout};
 
     /// The screen's text, one line per row.
     pub(crate) fn text(terminal: &Terminal<TestBackend>) -> String {
@@ -228,6 +241,26 @@ pub(crate) mod tests {
         assert!(screen.contains("candidate"), "{screen}");
         assert!(screen.contains("declined"), "{screen}");
         assert!(screen.contains("powermetrics: declined — macOS only; this host runs Linux"), "{screen}");
+    }
+
+    /// AC/FE-61, AC/FE-83
+    #[test]
+    fn without_verbose_a_declined_key_and_a_failed_read_still_show() {
+        let (tx, rx) = mpsc::channel();
+        let mut view = CheckView::new(Live::new(1.0).with_keys(vec![em_key()]), Feed::fake(rx), false);
+        feed(&tx);
+        // The key's candidate declined; a fallback serves instead.
+        tx.send(Msg::Decided("electricity-maps", Verdict::Declined("zone DK-DK2: access denied".into()))).unwrap();
+        tx.send(Msg::Readout(std::sync::Arc::new(std::collections::HashMap::from([(
+            carbontracker::SourceId::new(carbontracker::ProviderId(2), 0),
+            carbontracker::Observation::Failed(carbontracker::Failure::TimedOut),
+        )]))))
+        .unwrap();
+        let screen = draw(&mut view);
+        assert!(screen.contains("electricity-maps is unavailable: zone DK-DK2: access denied"), "{screen}");
+        assert!(screen.contains("carbontracker init"), "{screen}");
+        assert!(screen.contains("nvml: the read timed out"), "{screen}");
+        assert!(screen.contains("(stale)"), "{screen}");
     }
 
     /// AC/FE-80

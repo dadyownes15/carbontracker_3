@@ -143,6 +143,10 @@ provider serving it. The values follow each readout until the user presses
 
 **A kind nothing serves shows `none`** and points to `check -v`. <!-- AC/FE-78 -->
 
+**A source whose read fails is shown failing on its kind's line**, with the
+reason, and a value read before is marked stale until the source reads
+again. <!-- AC/FE-83 -->
+
 **`check -v` on a terminal lists every candidate as the probe decides it**:
 serving, standing by (a better candidate serves), declined, or not asked
 for, with its reason, and the selected row's full reason at the bottom. <!-- AC/FE-79 -->
@@ -161,8 +165,9 @@ Then, for each keyed service, where its key came from, and the providers
 serving. It exits 0. A location row is left out when the intensity is
 stated. <!-- AC/FE-52 -->
 
-**A key whose provider declined is warned about** below the rows, naming the
-key by its hint, giving the reason the provider declined, and pointing to
+**A key whose provider declined is warned about** below the rows, and below
+the lines of the full-screen view with or without `-v`, naming the key by its
+hint, giving the reason the provider declined, and pointing to
 `carbontracker init`. <!-- AC/FE-61 -->
 
 **`check -v` adds every candidate's verdict** (serving, or why not) after the

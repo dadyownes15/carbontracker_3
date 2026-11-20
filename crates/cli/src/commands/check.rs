@@ -174,7 +174,7 @@ fn key_rows(keys: &Keys) -> Vec<Row> {
 }
 
 /// The candidate a keyed service's key unlocks.
-fn candidate_of(service: KeyedService) -> &'static str {
+pub(crate) fn candidate_of(service: KeyedService) -> &'static str {
     match service {
         KeyedService::ElectricityMaps => "electricity-maps",
     }
@@ -188,14 +188,14 @@ fn warnings(candidates: &[CandidateOutcome], keys: &Keys) -> Vec<String> {
                 Verdict::Declined(reason) if outcome.name == candidate_of(*service) => Some(reason),
                 _ => None,
             })?;
-            Some(format!(
-                "! {} key {} found, but {} is unavailable: {reason}\n    run `carbontracker init` to fix the key",
-                service.name(),
-                key.hint(),
-                candidate_of(*service)
-            ))
+            Some(key_warning(service.name(), &key.hint().to_string(), candidate_of(*service), reason))
         })
         .collect()
+}
+
+/// The warning for a key whose candidate declined, and why.
+pub(crate) fn key_warning(service: &str, hint: &str, candidate: &str, reason: &str) -> String {
+    format!("! {service} key {hint} found, but {candidate} is unavailable: {reason}\n    run `carbontracker init` to fix the key")
 }
 
 fn render(rows: &[Row], warnings: &[String], colour: bool) -> String {
