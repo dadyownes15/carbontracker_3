@@ -35,4 +35,4 @@ pub use domain::{presentation, record};
 pub use ports::{Projection, Sink, deliver};
 
 // What a frontend needs from the engine.
-pub use carbontracker::{SessionReport, SpanId, Work, WorkEntry};
+pub use carbontracker::{PowerDomain, SessionReport, SourceSelection, SpanId, Work, WorkEntry};

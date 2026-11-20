@@ -192,9 +192,9 @@ pub struct RunHandle<P: Projection = ()> {
 }
 
 impl<P: Projection> RunHandle<P> {
-    /// Opens a span under `parent`, or at the top level.
-    pub fn start_span(&self, name: &str, parent: Option<SpanId>) -> SpanId {
-        self.engine.start_span(name, parent, SourceSelection::All)
+    /// Opens a span under `parent`, or at the top level, billing `selection`.
+    pub fn start_span(&self, name: &str, parent: Option<SpanId>, selection: SourceSelection) -> SpanId {
+        self.engine.start_span(name, parent, selection)
     }
 
     /// Reports work done so far on an open span.

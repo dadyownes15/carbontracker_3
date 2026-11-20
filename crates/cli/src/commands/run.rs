@@ -10,7 +10,7 @@ use std::io;
 use std::process::ExitStatus;
 
 use carbontracker_run::presentation::{self, prefixed};
-use carbontracker_run::{standard_sinks, Console, Folder, Layout, Outcome, RunConfig, RunHandle, Verbosity, Work};
+use carbontracker_run::{standard_sinks, Console, Folder, Layout, Outcome, RunConfig, RunHandle, SourceSelection, Verbosity, Work};
 use tokio::process::{Child, Command};
 
 use crate::args::{self, Args};
@@ -51,7 +51,7 @@ pub fn track(args: &Args, command: &[OsString]) -> Result<i32, String> {
 /// Runs `command` as a span named `name` and returns how it ended. A
 /// command that can't start exits with 127 (not found) or 126.
 async fn in_span(run: &RunHandle, name: &str, command: &[OsString]) -> Outcome {
-    let span = run.start_span(name, None);
+    let span = run.start_span(name, None, SourceSelection::All);
     let outcome = spawn_and_wait(command).await;
     run.stop_span(span, Work::default());
     outcome

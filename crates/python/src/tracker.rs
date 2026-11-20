@@ -19,7 +19,7 @@ use carbontracker_providers::{
 };
 use carbontracker_run::{
     presentation, standard_sinks, LatestForecast, Console, Folder, Layout, Outcome, Predictor, RunConfig,
-    RunHandle, SpanId, Verbosity, Work,
+    RunHandle, SourceSelection, SpanId, Verbosity, Work,
 };
 use pyo3::exceptions::{PyOSError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -206,7 +206,7 @@ impl Tracker {
     /// Open a span. Never waits.
     #[pyo3(signature = (name, parent=None))]
     fn start_span(&self, name: &str, parent: Option<usize>) -> PyResult<usize> {
-        self.with_run(|run| run.start_span(name, parent.map(SpanId::new)).get())
+        self.with_run(|run| run.start_span(name, parent.map(SpanId::new), SourceSelection::All).get())
     }
 
     /// Report work on an open span. Never waits.
@@ -237,7 +237,7 @@ impl Tracker {
         let after = chrono::Utc::now();
         let before = began.elapsed().as_secs_f64();
         let cut = Instant::now();
-        let span = self.with_run(|run| run.start_span(name, parent.map(SpanId::new)).get())?;
+        let span = self.with_run(|run| run.start_span(name, parent.map(SpanId::new), SourceSelection::All).get())?;
         let read: Paced = self.paced.iter().filter(|(source, ..)| plan.read.contains(source)).copied().collect();
         let deadline = Instant::now() + self.fetch_timeout;
         let late = py.detach(|| self.await_fresh(span, &read, after, deadline));

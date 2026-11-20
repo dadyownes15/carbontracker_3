@@ -25,6 +25,13 @@ and the country table needs a country it lists. An asked-for world average
 A frontend's own work, such as the CLI's command or a Python script, begins
 only after what is measured has been printed. <!-- AC/RUN-24 -->
 
+## Spans
+
+**`start_span(name, parent, selection)` opens a span billing the
+`SourceSelection` it is given**, passed to the engine unchanged and recorded
+in the span's `span_started` line (AC/REC-10). A frontend that selects
+nothing passes `SourceSelection::All`. <!-- AC/RUN-26 -->
+
 ## The item stream
 
 Everything a run does, from the first probe step to the session's end, reaches

@@ -6,11 +6,11 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use carbontracker::{GramsCo2ePerKwh, GridLocation, TrackerConfig, TrackerEvent, Watts};
+use carbontracker::{GramsCo2ePerKwh, GridLocation, PowerDomain, SourceSelection, TrackerConfig, TrackerEvent, Watts};
 use carbontracker_providers::{GridConfig, Pinned, ProbeConfig};
 use carbontracker_run::{
     LatestForecast, Console, Folder, Layout, Outcome, Predictor, RunConfig, Sink, Started, Verbosity,
-    Work, standard_sinks, start,
+    Work, record, standard_sinks, start,
 };
 
 /// A writer the test reads back.
@@ -88,7 +88,7 @@ fn legacy(out: &Shared) -> Console {
 /// One span of `work`, then finish.
 fn one_span(config: RunConfig) {
     let run = start(config, |_, _| ()).unwrap();
-    let span = run.start_span("work", None);
+    let span = run.start_span("work", None, SourceSelection::All);
     std::thread::sleep(Duration::from_millis(50));
     run.stop_span(span, Work::default());
     run.finish(Outcome::Exited { code: 0 }).unwrap();
@@ -336,7 +336,7 @@ fn the_predictor_prints_its_block_and_the_view_reads_it() {
     let forecaster = shared.lock().unwrap().take().unwrap();
     wait_until("the forecaster has a curve", || forecaster.latest().flatten().is_some());
     for _ in 0..3 {
-        let epoch = run.start_span("epoch", None);
+        let epoch = run.start_span("epoch", None, SourceSelection::All);
         std::thread::sleep(Duration::from_millis(30));
         run.stop_span(epoch, Work::default());
     }
@@ -468,8 +468,8 @@ impl Sink for Recorder {
 /// Two nested spans, one marked, then finish.
 fn nested(config: RunConfig) {
     let run = start(config, |_, _| ()).unwrap();
-    let outer = run.start_span("outer", None);
-    let inner = run.start_span("inner", Some(outer));
+    let outer = run.start_span("outer", None, SourceSelection::All);
+    let inner = run.start_span("inner", Some(outer), SourceSelection::All);
     run.mark(inner, Work::of("samples", 8.0));
     std::thread::sleep(Duration::from_millis(30));
     run.stop_span(inner, Work::default());
@@ -639,7 +639,7 @@ fn a_sink_that_blocks_loses_no_events() {
     let (gate, recorder) = (Gate::default(), Recorder::default());
     let slow = Slow { gate: gate.clone(), recorder: recorder.clone() };
     let run = start(config(vec![Box::new(slow)]), |_, _| MarksPassed::default()).unwrap();
-    let span = run.start_span("burst", None);
+    let span = run.start_span("burst", None, SourceSelection::All);
     // In batches the forwarder passes on in turn, while the sink stays blocked.
     for sent in (BATCH..=BURST).step_by(BATCH) {
         for _ in 0..BATCH {
@@ -684,7 +684,7 @@ fn a_projection_that_falls_behind_gets_a_gap_and_no_event_after_it() {
     // A subscription of the test's own, to know when the engine has
     // announced every mark.
     let mut watch = engine.lock().unwrap().take().and_then(|weak| weak.upgrade()).unwrap().subscribe_with_capacity(2 * BURST);
-    let span = run.start_span("burst", None);
+    let span = run.start_span("burst", None, SourceSelection::All);
     for _ in 0..BURST {
         run.mark(span, Work::of("steps", 1.0));
     }
@@ -795,7 +795,7 @@ fn a_projection_keeps_what_the_engine_forgets_and_the_view_reads_it() {
     sinks.push(Box::new(recorder.clone()));
     let run = start(config(sinks), |_, _| Tally::default()).unwrap();
     for _ in 0..3 {
-        let span = run.start_span("step", None);
+        let span = run.start_span("step", None, SourceSelection::All);
         std::thread::sleep(Duration::from_millis(30));
         run.stop_span(span, Work::default());
     }
@@ -845,7 +845,7 @@ impl carbontracker_run::Projection for Tagger {
 fn each_block_comes_just_before_the_item_it_came_from() {
     let recorder = Recorder::default();
     let run = start(config(vec![Box::new(recorder.clone())]), |_, _| Tagger).unwrap();
-    let span = run.start_span("work", None);
+    let span = run.start_span("work", None, SourceSelection::All);
     run.mark(span, Work::of("steps", 1.0));
     run.stop_span(span, Work::default());
     run.finish(Outcome::Exited { code: 0 }).unwrap();
@@ -904,7 +904,7 @@ fn a_source_that_is_never_read_again_is_in_one_readout_line() {
     .unwrap();
     // Pinned sources are never read again; many cuts over many intervals.
     for _ in 0..5 {
-        let span = run.start_span("step", None);
+        let span = run.start_span("step", None, SourceSelection::All);
         std::thread::sleep(Duration::from_millis(30));
         run.stop_span(span, Work::default());
     }
@@ -937,6 +937,36 @@ fn a_source_that_is_never_read_again_is_in_one_readout_line() {
         let lines = readouts.iter().filter(|ids| ids.iter().any(|id| id == source)).count();
         assert_eq!(lines, 1, "{source} in {readouts:?}");
     }
+}
+
+/// AC/RUN-26, AC/REC-10
+#[test]
+fn a_span_started_on_a_selection_is_recorded_with_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = Folder::claim(dir.path(), None).unwrap();
+    let run = start(
+        config(standard_sinks(console(&Shared::default(), Verbosity::Quiet), Some(&folder)).unwrap()),
+        |_, _| (),
+    )
+    .unwrap();
+    let gpu = run.start_span("gpu", None, SourceSelection::Domains(vec![PowerDomain::Gpu]));
+    let all = run.start_span("all", None, SourceSelection::All);
+    run.stop_span(gpu, Work::default());
+    run.stop_span(all, Work::default());
+    run.finish(Outcome::Exited { code: 0 }).unwrap();
+
+    let billed: Vec<(String, record::Billed)> = record(&folder)
+        .into_iter()
+        .filter(|line| line["kind"] == "span_started")
+        .map(|line| (line["name"].as_str().unwrap().to_owned(), serde_json::from_value(line["billed"].clone()).unwrap()))
+        .collect();
+    assert_eq!(
+        billed,
+        [
+            ("gpu".to_owned(), record::Billed::Domains(vec!["gpu".to_owned()])),
+            ("all".to_owned(), record::Billed::All),
+        ]
+    );
 }
 
 /// Every Rust file under `dir`, with its text.

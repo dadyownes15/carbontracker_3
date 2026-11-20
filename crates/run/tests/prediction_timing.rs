@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use carbontracker::{Fidelity, GramsCo2ePerKwh, GridLocation, Sample, TrackerConfig, Watts};
 use carbontracker_providers::{ForecastReport, GridConfig, Pinned, ProbeConfig};
 use carbontracker_run::{
-    ConsoleSink, LatestForecast, Layout, Outcome, Predictor, RunConfig, Verbosity, Work, start,
+    ConsoleSink, LatestForecast, Layout, Outcome, Predictor, RunConfig, SourceSelection, Verbosity, Work, start,
 };
 use proptest::prelude::*;
 
@@ -170,7 +170,7 @@ fn printed_after(world: &World, deadline: Duration) -> Option<Duration> {
     .unwrap();
     let mut due = None;
     for (n, length) in world.epochs.iter().enumerate() {
-        let epoch = run.start_span("epoch", None);
+        let epoch = run.start_span("epoch", None, SourceSelection::All);
         thread::sleep(*length);
         run.stop_span(epoch, Work::default());
         if n + 1 == world.predict_after {

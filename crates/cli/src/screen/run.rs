@@ -7,7 +7,7 @@ use std::thread::JoinHandle;
 
 use carbontracker::TrackerEvent;
 use carbontracker_providers::ProbeProgress;
-use carbontracker_run::{Outcome, RunConfig, Sink, Started, Work};
+use carbontracker_run::{Outcome, RunConfig, Sink, SourceSelection, Started, Work};
 
 use super::live::{Msg, Source};
 use crate::args::Args;
@@ -105,7 +105,7 @@ pub fn start(args: &Args) -> Result<Feed, String> {
                 return;
             }
         };
-        let span = run.start_span("check", None);
+        let span = run.start_span("check", None, SourceSelection::All);
         let _ = stop_rx.recv();
         run.stop_span(span, Work::default());
         let _ = run.finish(Outcome::Interrupted { epochs_done: None });
