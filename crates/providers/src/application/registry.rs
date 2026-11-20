@@ -10,7 +10,7 @@ use chrono::Utc;
 use crate::adapters::intensity::constant::{constant_intensity, WORLD_AVERAGE_G_CO2_PER_KWH};
 use crate::adapters::intensity::country_average::probe_country_average;
 use crate::adapters::intensity::electricity_maps::{
-    probe_electricity_maps, probe_electricity_maps_forecast, Api, ELECTRICITY_MAPS_URL,
+    probe_electricity_maps, probe_electricity_maps_forecast, Api, base_url,
 };
 use crate::adapters::power::constant::{constant_device, constant_power};
 use crate::adapters::power::generic_cpu::probe_generic_cpu;
@@ -77,7 +77,7 @@ impl Default for Endpoints {
     fn default() -> Self {
         Self {
             ip_geolocation: IP_GEOLOCATION_URL.to_owned(),
-            electricity_maps: ELECTRICITY_MAPS_URL.to_owned(),
+            electricity_maps: base_url(),
             timeout: Duration::from_secs(2),
         }
     }

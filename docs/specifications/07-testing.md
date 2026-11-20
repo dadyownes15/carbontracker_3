@@ -146,6 +146,23 @@ expected values come from the program, the world and the trace. <!-- AC/TST-34 -
 the replay reads**, so it can be run again by hand. GHC may be absent:
 the suite then reports itself skipped, never passed. <!-- AC/TST-35 -->
 
+**A counterexample that found a defect is kept.** Its JSON goes to
+`crates/engine/tests/replay-cases/`, with a test in `replay_cases.rs`
+stating the rule it broke, and CI replays it on every run with no GHC.
+The generated suite runs when the engine or the suite changes, and
+nightly; when it fails, CI keeps its counterexamples. <!-- AC/TST-37 -->
+
+**A suite run locally is not run again on a pull request.**
+`quickcheck/run.sh` runs it and, when it passes, writes `quickcheck/passed`:
+a hash of the engine, the suite and `Cargo.lock`, and the number of cases.
+CI skips the suite only when all of these hold: <!-- AC/TST-38 -->
+
+- the run is for a pull request; a push to `main` and the nightly run always
+  run the suite;
+- the stamp's hash matches the code checked out, so any change after the
+  local run breaks it;
+- the local run used at least as many cases as CI, 100.
+
 ## Generators and oracles
 
 **A generator produces realistic input; an oracle says what the answer should

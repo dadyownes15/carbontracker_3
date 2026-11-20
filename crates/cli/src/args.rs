@@ -107,8 +107,11 @@ pub struct Args {
 pub enum Action {
     /// Show what would be measured, and what wasn't and why.
     Check,
-    /// Save an API key.
-    Init,
+    /// Save an API key (a menu on a terminal), or attach carbontracker to a Slurm script.
+    Init {
+        #[command(subcommand)]
+        what: Option<InitWhat>,
+    },
     /// Sum the runs recorded in .ct files, on stdout or as CSV.
     Report {
         /// Group settled spans by path, across runs.
@@ -126,6 +129,16 @@ pub enum Action {
     },
     #[command(external_subcommand)]
     Run(Vec<OsString>),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum InitWhat {
+    /// Write a wrapper that runs a Slurm script under carbontracker.
+    Slurm {
+        /// The Slurm script; without it, the scripts under this folder are listed.
+        #[arg(value_name = "SCRIPT")]
+        script: Option<PathBuf>,
+    },
 }
 
 /// The API keys found, each with where it came from.
@@ -204,6 +217,11 @@ impl Args {
     /// # Errors
     ///
     /// A message naming what is wrong, for exit code 2.
+    /// The PUE given, or the default.
+    pub fn pue(&self) -> f64 {
+        self.pue
+    }
+
     pub fn tracker(&self) -> Result<TrackerConfig, String> {
         if !(self.interval.is_finite() && self.interval > 0.0) {
             return Err("--interval must be a number of seconds above zero".to_owned());
@@ -384,7 +402,7 @@ mod tests {
     /// AC/FE-35
     #[test]
     fn a_command_named_like_a_subcommand_follows_a_double_dash() {
-        assert!(matches!(parse(&["init"]).unwrap().action(), Some(Action::Init)));
+        assert!(matches!(parse(&["init"]).unwrap().action(), Some(Action::Init { what: None })));
         assert_eq!(run(&["--", "init", "--force"]), ["init", "--force"]);
     }
 

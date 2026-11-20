@@ -11,6 +11,9 @@ use crate::args::{Args, Keys};
 /// Probe, and print one row per value: how it is obtained and by whom. With
 /// `-v`, every candidate's verdict follows.
 pub fn check(args: &Args) -> Result<i32, String> {
+    if crate::screen::available() {
+        return crate::screen::check(args);
+    }
     let keys = args.keys()?;
     let registry = args.registry(&keys)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -32,7 +35,7 @@ pub fn check(args: &Args) -> Result<i32, String> {
 
 /// How a value is obtained, best first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum How {
+pub(crate) enum How {
     Live,
     Stated,
     Modelled,
@@ -40,7 +43,7 @@ enum How {
 }
 
 impl How {
-    fn of(fidelity: Fidelity) -> Self {
+    pub(crate) fn of(fidelity: Fidelity) -> Self {
         match fidelity {
             Fidelity::Measured => Self::Live,
             Fidelity::Stated => Self::Stated,
@@ -49,7 +52,7 @@ impl How {
         }
     }
 
-    fn word(self) -> &'static str {
+    pub(crate) fn word(self) -> &'static str {
         match self {
             Self::Live => "live",
             Self::Stated => "stated",
@@ -60,7 +63,7 @@ impl How {
 
     /// ANSI colour: green for live or stated, yellow for modelled, red for
     /// fallback.
-    fn colour(self) -> &'static str {
+    pub(crate) fn colour(self) -> &'static str {
         match self {
             Self::Live | Self::Stated => "32",
             Self::Modelled => "33",
@@ -171,7 +174,7 @@ fn key_rows(keys: &Keys) -> Vec<Row> {
 }
 
 /// The candidate a keyed service's key unlocks.
-fn candidate_of(service: KeyedService) -> &'static str {
+pub(crate) fn candidate_of(service: KeyedService) -> &'static str {
     match service {
         KeyedService::ElectricityMaps => "electricity-maps",
     }
@@ -185,14 +188,22 @@ fn warnings(candidates: &[CandidateOutcome], keys: &Keys) -> Vec<String> {
                 Verdict::Declined(reason) if outcome.name == candidate_of(*service) => Some(reason),
                 _ => None,
             })?;
-            Some(format!(
-                "! {} key {} found, but {} is unavailable: {reason}\n    run `carbontracker init` to fix the key",
-                service.name(),
-                key.hint(),
-                candidate_of(*service)
-            ))
+            Some(key_warning(service.name(), &key.hint().to_string(), candidate_of(*service), reason))
         })
         .collect()
+}
+
+/// The warning for a key whose candidate declined, and why. Only a refused
+/// key points to `init`: when the service could not be reached, a new key
+/// would not help.
+pub(crate) fn key_warning(service: &str, hint: &str, candidate: &str, reason: &str) -> String {
+    let warning = format!("! {service} key {hint} found, but {candidate} is unavailable: {reason}");
+    // The providers' words for a 401 or 403.
+    if reason.contains("refused the key") {
+        format!("{warning}\n    run `carbontracker init` to fix the key")
+    } else {
+        warning
+    }
 }
 
 fn render(rows: &[Row], warnings: &[String], colour: bool) -> String {
@@ -239,6 +250,16 @@ mod tests {
         assert!(warning.contains("refused the key (401 Unauthorized)"), "{warning}");
         assert!(warning.contains("carbontracker init"), "{warning}");
         assert!(!warning.contains("secret"));
+    }
+
+    /// AC/FE-61
+    #[test]
+    fn an_unreachable_service_is_warned_about_without_sending_the_user_to_init() {
+        let offline = Verdict::Declined("zone DK: unavailable: Electricity Maps: error sending request".into());
+        let candidates = [outcome("electricity-maps", offline)];
+        let [warning] = warnings(&candidates, &keyed()).try_into().unwrap();
+        assert!(warning.contains("error sending request"), "{warning}");
+        assert!(!warning.contains("carbontracker init"), "a new key would not help: {warning}");
     }
 
     /// AC/FE-61

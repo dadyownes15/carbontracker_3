@@ -16,7 +16,9 @@ fn bare(dir: &Path) -> Command {
         .current_dir(dir)
         .env_remove("CARBONTRACKER_EM_KEY")
         // No config file: the user's own must not leak into a test.
-        .env("XDG_CONFIG_HOME", dir.join("config"));
+        .env("XDG_CONFIG_HOME", dir.join("config"))
+        // Nothing listens there, so a key check never reaches the network.
+        .env("CARBONTRACKER_EM_URL", "http://127.0.0.1:9/v3");
     command
 }
 
@@ -326,7 +328,7 @@ fn a_gpu_power_replaces_the_gpu() {
         .stderr(contains("readout: static (gpu) 300 W"));
 }
 
-/// AC/FE-52, AC/FE-53, AC/FE-54
+/// AC/FE-52, AC/FE-53, AC/FE-54, AC/FE-81
 #[test]
 fn check_shows_how_each_value_is_obtained_and_where_the_key_came_from() {
     let dir = tempfile::tempdir().unwrap();
@@ -423,7 +425,8 @@ fn init_saves_the_key_from_stdin_then_checks() {
         .write_stdin("secret-c3d4\n")
         .assert()
         .success()
-        .stdout(contains("Saved to"))
+        // Nothing answers at the pinned address, so the key is saved unchecked.
+        .stderr(contains("saved unchecked to"))
         .stdout(contains("  power      stated     system"))
         .stdout(contains("  key        electricity_maps …c3d4, from the config file"))
         .stdout(contains("secret").not());

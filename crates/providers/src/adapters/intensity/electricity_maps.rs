@@ -23,6 +23,8 @@ const ELECTRICITY_MAPS_COOLDOWN: Duration = Duration::from_secs(60);
 /// How long a request made from a read may wait on the service.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const ELECTRICITY_MAPS_URL: &str = "https://api.electricitymaps.com/v3";
+/// The environment variable that replaces [ELECTRICITY_MAPS_URL].
+pub const URL_VARIABLE: &str = "CARBONTRACKER_EM_URL";
 /// The only horizons the forecast endpoint accepts.
 const FORECAST_HORIZON_HOURS: [u64; 4] = [6, 24, 48, 72];
 
@@ -154,6 +156,42 @@ fn blocking_get(base_url: &str, key: &str, path: &str, params: &[(&str, String)]
     }
     let body = response.text().map_err(unreachable)?;
     serde_json::from_str(&body).map_err(|_| ProviderError::Invalid("an answer that is not JSON".to_owned()))
+}
+
+/// The base URL Electricity Maps is asked at: [URL_VARIABLE] if set, else
+/// the public API.
+pub(crate) fn base_url() -> String {
+    std::env::var(URL_VARIABLE)
+        .ok()
+        .map(|url| url.trim_end_matches('/').to_owned())
+        .filter(|url| !url.is_empty())
+        .unwrap_or_else(|| ELECTRICITY_MAPS_URL.to_owned())
+}
+
+/// What Electricity Maps said about a key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeyCheck {
+    /// The key works, and reaches these zones, sorted.
+    Works(Vec<String>),
+    /// Electricity Maps refused the key, and why.
+    Refused(String),
+    /// Electricity Maps could not be asked, or gave no usable answer, and why.
+    Unreachable(String),
+}
+
+/// Ask Electricity Maps which zones `key` reaches (`GET /zones`). Blocking,
+/// with its own client, so it never runs on an async runtime.
+pub fn check_key(key: &ApiKey) -> KeyCheck {
+    match blocking_get(&base_url(), key.expose(), "/zones", &[]) {
+        Ok(serde_json::Value::Object(zones)) => {
+            let mut zones: Vec<String> = zones.keys().cloned().collect();
+            zones.sort();
+            KeyCheck::Works(zones)
+        }
+        Ok(_) => KeyCheck::Unreachable("Electricity Maps gave a zone list that does not parse".to_owned()),
+        Err(ProviderError::Denied(why)) => KeyCheck::Refused(why),
+        Err(error) => KeyCheck::Unreachable(error.to_string()),
+    }
 }
 
 fn unreachable(error: reqwest::Error) -> ProviderError {

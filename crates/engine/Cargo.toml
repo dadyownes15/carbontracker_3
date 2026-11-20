@@ -31,3 +31,7 @@ required-features = ["replay"]
 name = "replay-live"
 path = "src/bin/replay_live.rs"
 required-features = ["replay"]
+
+[[test]]
+name = "replay_cases"
+required-features = ["replay"]

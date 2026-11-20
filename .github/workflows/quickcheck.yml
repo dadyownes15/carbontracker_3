@@ -1,0 +1,77 @@
+name: quickcheck
+
+# Generated programs replayed through the session and the engine with no
+# threads and no clock. It finds new counterexamples, so it runs when the
+# engine or the suite changes, and nightly; the ones it has found are
+# replayed on every run of ci.yml. A pull request whose quickcheck/passed
+# matches the code it checks out was run locally with quickcheck/run.sh, and
+# is not run again. A push to main and the nightly run always run.
+on:
+  pull_request:
+    paths:
+      - "crates/engine/**"
+      - "quickcheck/**"
+      - "Cargo.lock"
+      - ".github/workflows/quickcheck.yml"
+  push:
+    branches: [main]
+    paths:
+      - "crates/engine/**"
+      - "quickcheck/**"
+      - "Cargo.lock"
+      - ".github/workflows/quickcheck.yml"
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: quickcheck-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  quickcheck:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # Run locally on exactly this code, with at least 100 cases.
+      - id: stamp
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ -f quickcheck/passed ] \
+            && [ "$(sed -n 1p quickcheck/passed)" = "$(quickcheck/run.sh hash)" ] \
+            && [ "$(sed -n 2p quickcheck/passed)" -ge 100 ]; then
+            echo "Run locally on this code at $(sed -n 2p quickcheck/passed) cases; not run again."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.stamp.outputs.skip != 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.stamp.outputs.skip != 'true'
+      - uses: haskell-actions/setup@v2
+        if: steps.stamp.outputs.skip != 'true'
+        id: haskell
+        with:
+          ghc-version: "9.10"
+          cabal-version: "3.12"
+      - uses: actions/cache@v4
+        if: steps.stamp.outputs.skip != 'true'
+        with:
+          path: ${{ steps.haskell.outputs.cabal-store }}
+          key: cabal-${{ runner.os }}-${{ steps.haskell.outputs.ghc-version }}-${{ hashFiles('quickcheck/quickcheck.cabal') }}
+      - run: cargo build -p carbontracker --features replay --bins
+        if: steps.stamp.outputs.skip != 'true'
+      - run: cabal update && cabal test -v0 --test-show-details=direct
+        if: steps.stamp.outputs.skip != 'true'
+        working-directory: quickcheck
+        env:
+          QUICKCHECK_CASES: "100"
+      # A counterexample to keep: copy it to crates/engine/tests/replay-cases/
+      # with a test in replay_cases.rs.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: quickcheck-failures
+          path: quickcheck/failures/
