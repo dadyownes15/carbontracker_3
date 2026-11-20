@@ -112,6 +112,24 @@ impl Readers {
         (Self { readers, interval, next_request: 1 }, returns)
     }
 
+    /// Readers whose jobs go to the returned channels rather than to worker
+    /// threads: nothing is read, and the caller hands back each result.
+    #[cfg(test)]
+    pub(crate) fn detached(
+        readers: HashMap<ProviderId, Reader>,
+        interval: Duration,
+    ) -> (Self, HashMap<ProviderId, std::sync::mpsc::Receiver<()>>) {
+        let mut readers = readers;
+        let mut jobs = HashMap::new();
+        for (&id, reader) in &mut readers {
+            reader.provider = None;
+            let (sender, receiver) = std::sync::mpsc::channel();
+            reader.worker = Some(sender);
+            jobs.insert(id, receiver);
+        }
+        (Self { readers, interval, next_request: 1 }, jobs)
+    }
+
     /// Every provider, in id order.
     pub(crate) fn providers(&self) -> Vec<ProviderId> {
         let mut providers: Vec<ProviderId> = self.readers.keys().copied().collect();

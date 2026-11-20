@@ -1,7 +1,8 @@
-//! How the engine reads its providers, through the public API: reads that
-//! hang, panic or are slow, on threads of their own, under the fetch policy.
-//! Timeouts and cooldowns are tens of milliseconds; every check of time is an
-//! upper bound with slack, never an exact time.
+//! How the engine reads its providers on real threads, through the public
+//! API: reads that hang, panic or return out of order, on worker threads of
+//! their own. What depends only on timing (policies, cooldowns, the watchdog,
+//! how long a finish waits) is checked exactly in the crate's `tests::engine`;
+//! the bounds here leave seconds of slack, so a busy host cannot break them.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -11,13 +12,15 @@ use std::time::{Duration, Instant};
 use tokio::sync::oneshot;
 
 use carbontracker::{
-    SubscriptionEnded, UnreadyActions, ConfigError, Cooldown, Failure, FetchPolicy, Fidelity, GridLocation, Observation, PowerDomain,
-    PowerScope, Provider, ProviderError, ProviderId, ProviderResponse, Sample, SampleKind, Skip,
+    SubscriptionEnded, ConfigError, Cooldown, Failure, FetchPolicy, Fidelity, GridLocation, Observation, PowerDomain,
+    PowerScope, Provider, ProviderError, ProviderId, ProviderResponse, Sample, SampleKind,
     SourceDescription, SourceId, SourceSelection, Sources, Subscription, TrackerConfig,
     TrackerEvent, TrackerHandle, TrackerQuery, Work, start, start_subscribed,
 };
 
-const TIMEOUT: Duration = Duration::from_millis(100);
+/// Long enough that no read times out on a busy host; tests about hung
+/// reads set their own.
+const TIMEOUT: Duration = Duration::from_secs(5);
 const WAIT: Duration = Duration::from_secs(5);
 const POWER: ProviderId = ProviderId(1);
 const GRID: ProviderId = ProviderId(2);
@@ -175,12 +178,12 @@ fn config() -> TrackerConfig {
     }
 }
 
-/// A tracker over `power` and `grid`.
-fn tracker(power_provider: Test, grid_provider: Test) -> TrackerHandle {
-    tracker_with(power_provider, grid_provider, config())
+/// A config whose reads time out after `timeout`.
+fn timing_out(timeout: Duration) -> TrackerConfig {
+    TrackerConfig { fetch: FetchPolicy { timeout, ..config().fetch }, ..config() }
 }
 
-fn tracker_with(power_provider: Test, grid_provider: Test, config: TrackerConfig) -> TrackerHandle {
+fn sources_of(power_provider: Test, grid_provider: Test) -> Sources {
     let mut sources = Sources::new();
     sources
         .add_provider(POWER, power_provider, [(source(POWER), power())])
@@ -188,7 +191,21 @@ fn tracker_with(power_provider: Test, grid_provider: Test, config: TrackerConfig
     sources
         .add_provider(GRID, grid_provider, [(source(GRID), grid())])
         .unwrap();
-    start(sources, config).expect("a valid config")
+    sources
+}
+
+/// A tracker over `power` and `grid`.
+fn tracker(power_provider: Test, grid_provider: Test) -> TrackerHandle {
+    tracker_with(power_provider, grid_provider, config())
+}
+
+fn tracker_with(power_provider: Test, grid_provider: Test, config: TrackerConfig) -> TrackerHandle {
+    start(sources_of(power_provider, grid_provider), config).expect("a valid config")
+}
+
+/// [tracker_with], subscribed before the engine reads anything.
+fn subscribed(power_provider: Test, grid_provider: Test, config: TrackerConfig) -> (TrackerHandle, Subscription) {
+    start_subscribed(sources_of(power_provider, grid_provider), config).expect("a valid config")
 }
 
 /// Each source's observations, in the order their readouts landed, until
@@ -216,10 +233,10 @@ async fn observed(events: &mut Subscription) -> BTreeMap<SourceId, Vec<Observati
 /// AC/MEAS-3, AC/MEAS-24, AC/MEAS-25, AC/MEAS-30, AC/ENG-37
 #[tokio::test]
 async fn a_read_that_hangs_delays_nothing_else() {
+    // Waiting on the hung read would take the whole timeout; the bounds are a third of it.
+    let timeout = Duration::from_secs(3);
     let (hanging, _release) = Test::new(POWER, Behaviour::Answer).blocking();
-    let grid_provider = Test::new(GRID, Behaviour::Answer);
-    let tracker = tracker(hanging, grid_provider);
-    let mut events = tracker.subscribe();
+    let (tracker, mut events) = subscribed(hanging, Test::new(GRID, Behaviour::Answer), timing_out(timeout));
     let mut cuts = tracker.subscribe();
 
     let began = Instant::now();
@@ -227,14 +244,18 @@ async fn a_read_that_hangs_delays_nothing_else() {
     let (reply, answer) = oneshot::channel();
     tracker.query(TrackerQuery::Catalog { reply });
     answer.await.unwrap().expect("a query is answered while the read hangs");
-    assert!(began.elapsed() < TIMEOUT, "the query did not wait on the read");
+    assert!(began.elapsed() < timeout / 3, "the query did not wait on the read");
     tracker.mark(span, Work::default());
-    while !matches!(cuts.recv().await, Ok(TrackerEvent::Marked { .. })) {}
-    assert!(began.elapsed() < TIMEOUT, "events were delivered while the read hangs");
+    tokio::time::timeout(WAIT, async {
+        while !matches!(cuts.recv().await.expect("the stream is open"), TrackerEvent::Marked { .. }) {}
+    })
+    .await
+    .expect("the mark is announced");
+    assert!(began.elapsed() < timeout / 3, "events were delivered while the read hangs");
 
     tracker.stop_span(span, Work::default());
     tracker.finish().await.expect("the session finishes despite the hung read");
-    assert!(began.elapsed() < TIMEOUT * 5, "nothing waited past the timeouts");
+    assert!(began.elapsed() < 2 * timeout + Duration::from_secs(1), "nothing waited past AC/ENG-27's bound");
 
     let observed = observed(&mut events).await;
     let power = &observed[&source(POWER)];
@@ -254,8 +275,7 @@ async fn a_read_that_hangs_delays_nothing_else() {
 /// AC/MEAS-26, AC/MEAS-27, AC/MEAS-57
 #[tokio::test]
 async fn a_panicking_provider_is_retired_alone() {
-    let tracker = tracker(Test::new(POWER, Behaviour::Panic), Test::new(GRID, Behaviour::Answer));
-    let mut events = tracker.subscribe();
+    let (tracker, mut events) = subscribed(Test::new(POWER, Behaviour::Panic), Test::new(GRID, Behaviour::Answer), config());
 
     let span = tracker.start_span("work", None, SourceSelection::All);
     tracker.stop_span(span, Work::default());
@@ -310,7 +330,7 @@ async fn no_provider_code_runs_on_the_tracker_thread() {
 async fn a_provider_out_on_an_abandoned_read_is_dropped_when_it_returns() {
     let (hanging, release) = Test::new(POWER, Behaviour::Answer).blocking();
     let threads = hanging.threads.clone();
-    let tracker = tracker(hanging, Test::new(GRID, Behaviour::Answer));
+    let tracker = tracker_with(hanging, Test::new(GRID, Behaviour::Answer), timing_out(Duration::from_millis(100)));
     let span = tracker.start_span("work", None, SourceSelection::All);
     tracker.stop_span(span, Work::default());
     tracker
@@ -326,30 +346,6 @@ async fn a_provider_out_on_an_abandoned_read_is_dropped_when_it_returns() {
             .iter()
             .all(|name| name.starts_with("carbontracker-read")),
         "dropped by its read: {dropped:?}"
-    );
-}
-
-/// AC/ENG-27, AC/MEAS-54
-#[tokio::test]
-async fn finishing_waits_no_longer_than_the_slowest_queued_request() {
-    let cooldown = Duration::from_millis(300);
-    let power_provider = Test::new(POWER, Behaviour::Answer).cooling(Cooldown::After(cooldown));
-    // The grid skips, so its minute-long cooldown never holds the finish.
-    let grid_provider =
-        Test::new(GRID, Behaviour::Answer).cooling(Cooldown::After(Duration::from_secs(60)));
-    let tracker = tracker(power_provider, grid_provider);
-
-    for _ in 0..20 {
-        let span = tracker.start_span("burst", None, SourceSelection::All);
-        tracker.stop_span(span, Work::default());
-    }
-    let began = Instant::now();
-    tracker.finish().await.expect("the session finishes");
-    let bound = cooldown.max(TIMEOUT) + TIMEOUT;
-    assert!(
-        began.elapsed() < bound + Duration::from_millis(200),
-        "{:?} against {bound:?}",
-        began.elapsed()
     );
 }
 
@@ -391,104 +387,6 @@ fn a_zero_timeout_or_a_policy_for_an_unknown_provider_is_refused() {
     );
 }
 
-/// AC/MEAS-38, AC/MEAS-41, AC/ENG-10
-#[tokio::test]
-async fn by_default_power_queues_and_the_intensity_skips() {
-    let cooldown = Cooldown::After(Duration::from_millis(300));
-    let tracker = tracker(
-        Test::new(POWER, Behaviour::Answer).cooling(cooldown),
-        Test::new(GRID, Behaviour::Answer).cooling(cooldown),
-    );
-    let mut events = tracker.subscribe();
-
-    // Inside both cooldowns, after the opening reads have started.
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    let span = tracker.start_span("work", None, SourceSelection::All);
-    tracker.stop_span(span, Work::default());
-    tracker.finish().await.expect("the session finishes");
-
-    let observed = observed(&mut events).await;
-    assert!(
-        observed[&source(POWER)].iter().all(|o| matches!(o, Observation::Samples(_))),
-        "power waited for its cooldown"
-    );
-    assert!(
-        observed[&source(GRID)]
-            .iter()
-            .any(|o| matches!(o, Observation::Skipped(Skip::Cooldown | Skip::Busy))),
-        "the intensity skipped"
-    );
-}
-
-/// AC/MEAS-15, AC/MEAS-35, AC/MEAS-58
-#[tokio::test]
-async fn a_provider_read_once_is_never_read_again() {
-    let fixed = Test::new(GRID, Behaviour::Answer).cooling(Cooldown::Never);
-    let reads = fixed.reads.clone();
-    let tracker = tracker(Test::new(POWER, Behaviour::Answer), fixed);
-    let mut events = tracker.subscribe();
-
-    for _ in 0..5 {
-        let span = tracker.start_span("later", None, SourceSelection::All);
-        tracker.stop_span(span, Work::default());
-    }
-    tracker.finish().await.expect("the session finishes");
-
-    // Its opening read answers it; later cuts send it nothing.
-    let observed = observed(&mut events).await;
-    assert_eq!(reads.load(Ordering::SeqCst), 1);
-    assert!(observed.get(&source(GRID)).is_none_or(|grid| grid.len() <= 1));
-}
-
-/// AC/MEAS-4, AC/PROF-2
-#[tokio::test]
-async fn the_opening_cut_reads_every_provider() {
-    let power_provider = Test::new(POWER, Behaviour::Answer);
-    let grid_provider = Test::new(GRID, Behaviour::Answer);
-    let (power_reads, grid_reads) = (power_provider.reads.clone(), grid_provider.reads.clone());
-    let _tracker = tracker(power_provider, grid_provider);
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    assert_eq!(power_reads.load(Ordering::SeqCst), 1, "read before any span");
-    assert_eq!(grid_reads.load(Ordering::SeqCst), 1);
-}
-
-/// AC/MEAS-29, AC/MEAS-61, AC/MEAS-64, AC/MEAS-67, AC/ENG-43, AC/ENG-45
-#[tokio::test]
-async fn the_watchdog_asks_each_provider_on_its_own_period() {
-    let power_provider = Test::new(POWER, Behaviour::Answer).cooling(Cooldown::After(Duration::from_millis(10)));
-    let grid_provider = Test::new(GRID, Behaviour::Answer).cooling(Cooldown::After(Duration::from_millis(300)));
-    let (power_reads, grid_reads) = (power_provider.reads.clone(), grid_provider.reads.clone());
-    let config = TrackerConfig { readout_interval: Duration::from_millis(100), ..config() };
-    let _tracker = tracker_with(power_provider, grid_provider, config);
-
-    // 1 opening read each, then power every 100 ms and the grid every 300 ms.
-    tokio::time::sleep(Duration::from_millis(720)).await;
-    let (power, grid) = (power_reads.load(Ordering::SeqCst), grid_reads.load(Ordering::SeqCst));
-    assert!((6..=9).contains(&power), "power read {power} times");
-    assert!((2..=4).contains(&grid), "the grid read {grid} times, never inside its cooldown");
-}
-
-/// AC/PROF-2, AC/PROF-44, AC/MEAS-84
-#[tokio::test]
-async fn a_session_with_only_finish_bills_the_root_between_the_opening_and_finishing_reads() {
-    let power_provider = Test::new(POWER, Behaviour::Answer);
-    let reads = power_provider.reads.clone();
-    let tracker = tracker(power_provider, Test::new(GRID, Behaviour::Answer));
-
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    let report = tracker.finish().await.expect("the session finishes");
-
-    assert_eq!(reads.load(Ordering::SeqCst), 2, "the opening read and the finishing read");
-    let expected = 10.0 * report.duration.as_secs_f64() * report_pue();
-    let energy = report.total.energy.get();
-    assert!((energy - expected).abs() < 0.05 * expected, "{energy} J against {expected} J");
-}
-
-fn report_pue() -> f64 {
-    TrackerConfig::default().pue.get()
-}
-
 /// AC/ENG-28
 #[tokio::test]
 async fn dropping_every_handle_ends_the_session_with_no_report() {
@@ -512,35 +410,6 @@ async fn dropping_every_handle_ends_the_session_with_no_report() {
     .expect("the stream ends");
     assert_eq!(ended, SubscriptionEnded::Closed);
     assert!(!threads.wait_for("drop").is_empty(), "the provider is dropped");
-}
-
-/// AC/ENG-27
-#[tokio::test]
-async fn finishing_waits_no_longer_than_the_timeout_for_a_provider_that_skips() {
-    let (hanging, _release) = Test::new(POWER, Behaviour::Answer).blocking();
-    let mut config = config();
-    config.fetch.providers.insert(POWER, UnreadyActions::SKIP);
-    let tracker = tracker_with(hanging, Test::new(GRID, Behaviour::Answer), config);
-
-    let span = tracker.start_span("work", None, SourceSelection::All);
-    tracker.stop_span(span, Work::default());
-    let began = Instant::now();
-    tracker.finish().await.expect("the session finishes despite the hung read");
-    assert!(began.elapsed() < TIMEOUT + Duration::from_millis(50), "{:?}", began.elapsed());
-}
-
-/// AC/ENG-27
-#[tokio::test]
-async fn finishing_waits_no_longer_than_the_timeout_for_a_provider_that_queues() {
-    let (hanging, _release) = Test::new(POWER, Behaviour::Answer).blocking();
-    let tracker = tracker(hanging, Test::new(GRID, Behaviour::Answer));
-
-    let span = tracker.start_span("work", None, SourceSelection::All);
-    tracker.stop_span(span, Work::default());
-    let began = Instant::now();
-    tracker.finish().await.expect("the session finishes despite the hung read");
-    let bound = TIMEOUT + TIMEOUT;
-    assert!(began.elapsed() < bound + Duration::from_millis(200), "{:?} against {bound:?}", began.elapsed());
 }
 
 /// AC/MEAS-96
@@ -603,161 +472,20 @@ async fn readouts_land_in_the_order_their_reads_return() {
     assert!(!power_threads.wait_for("read").is_empty() && !grid_threads.wait_for("read").is_empty(), "both reads out at once");
     // Dropped, each sender releases every read from then on.
     drop(release_grid);
-    tokio::time::sleep(Duration::from_millis(30)).await;
+    let first = tokio::time::timeout(WAIT, async {
+        loop {
+            if let TrackerEvent::ReadoutLanded { outcomes, .. } = events.recv().await.expect("the stream is open") {
+                break outcomes.keys().next().expect("an observation").provider();
+            }
+        }
+    })
+    .await
+    .expect("the grid's readout lands");
     drop(release_power);
     tracker.finish().await.expect("the session finishes");
 
-    let order: Vec<ProviderId> = landed(&mut events).await.into_iter().map(|(provider, ..)| provider).collect();
-    assert_eq!(order[..2], [GRID, POWER], "the grid returned first: {order:?}");
-}
-
-/// A provider of two power sources, slots 0 and 1, counting its reads.
-struct Pair {
-    reads: Arc<AtomicUsize>,
-    cooldown: Cooldown,
-}
-
-impl Provider for Pair {
-    fn read(&mut self) -> Result<ProviderResponse, ProviderError> {
-        self.reads.fetch_add(1, Ordering::SeqCst);
-        let mut response = ProviderResponse::new();
-        for slot in 0..2 {
-            response.samples(SourceId::new(POWER, slot), vec![Sample::new(chrono::Utc::now(), 10.0)]);
-        }
-        Ok(response)
-    }
-
-    fn cooldown(&self) -> Cooldown {
-        self.cooldown
-    }
-}
-
-/// A tracker over a [Pair] and the grid, and the pair's read count.
-fn pair_tracker(cooldown: Cooldown, config: TrackerConfig) -> (TrackerHandle, Arc<AtomicUsize>) {
-    let reads = Arc::<AtomicUsize>::default();
-    let mut sources = Sources::new();
-    let pair = Pair { reads: reads.clone(), cooldown };
-    sources
-        .add_provider(POWER, pair, [(SourceId::new(POWER, 0), power()), (SourceId::new(POWER, 1), power())])
-        .unwrap();
-    sources.add_provider(GRID, Test::new(GRID, Behaviour::Answer), [(source(GRID), grid())]).unwrap();
-    (start(sources, config).expect("a valid config"), reads)
-}
-
-/// AC/MEAS-5
-#[tokio::test]
-async fn a_cut_reads_a_provider_once_however_many_of_its_sources_it_cuts() {
-    let (tracker, reads) = pair_tracker(Cooldown::After(Duration::ZERO), config());
-    let settle = Duration::from_millis(50);
-    tokio::time::sleep(settle).await;
-    let span = tracker.start_span("both", None, SourceSelection::All);
-    tokio::time::sleep(settle).await;
-    tracker.stop_span(span, Work::default());
-    tokio::time::sleep(settle).await;
-    tracker.finish().await.expect("the session finishes");
-
-    assert_eq!(reads.load(Ordering::SeqCst), 4, "the opening cut, the start, the stop and the finish");
-}
-
-/// AC/MEAS-39, AC/MEAS-55
-#[tokio::test]
-async fn every_request_follows_its_provider_s_policy_and_a_skip_costs_no_read() {
-    let mut config = config();
-    config.fetch.providers.insert(POWER, UnreadyActions::SKIP);
-    let (tracker, reads) = pair_tracker(Cooldown::After(Duration::from_secs(60)), config);
-    let mut events = tracker.subscribe();
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    for slot in [0, 1].repeat(25) {
-        let span = tracker.start_span("one", None, SourceSelection::Sources(vec![SourceId::new(POWER, slot)]));
-        tracker.stop_span(span, Work::default());
-    }
-    tracker.finish().await.expect("the session finishes");
-
-    assert_eq!(reads.load(Ordering::SeqCst), 1, "only the opening read: every cut is inside the cooldown");
-    let observed = observed(&mut events).await;
-    for slot in [0, 1] {
-        let seen = &observed[&SourceId::new(POWER, slot)];
-        // The opening read's samples, if they landed after subscribing, then every cut skipped.
-        let skipped: Vec<_> = seen.iter().filter(|o| !matches!(o, Observation::Samples(_))).collect();
-        assert!(seen.len() - skipped.len() <= 1, "slot {slot}: {seen:?}");
-        assert!(!skipped.is_empty() && skipped.iter().all(|o| **o == Observation::Skipped(Skip::Cooldown)), "slot {slot}: {seen:?}");
-    }
-}
-
-/// AC/MEAS-37
-#[tokio::test]
-async fn a_read_made_while_probing_does_not_hold_the_first_read() {
-    let mut probed = Test::new(POWER, Behaviour::Answer).cooling(Cooldown::After(Duration::from_secs(60)));
-    probed.read().expect("the probe reads it");
-    let reads = probed.reads.clone();
-    let _tracker = tracker(probed, Test::new(GRID, Behaviour::Answer));
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    assert_eq!(reads.load(Ordering::SeqCst), 2, "read at the opening cut, inside the probe's cooldown");
-}
-
-/// AC/MEAS-41
-#[tokio::test]
-async fn queue_waits_for_the_next_read_and_skip_answers_on_the_held_value() {
-    let cooldown = Duration::from_millis(300);
-    let settles_after_stop = |action: UnreadyActions| async move {
-        let mut config = config();
-        config.fetch.providers.insert(POWER, action);
-        let tracker = tracker_with(
-            Test::new(POWER, Behaviour::Answer).cooling(Cooldown::After(cooldown)),
-            Test::new(GRID, Behaviour::Answer).cooling(Cooldown::After(Duration::from_secs(60))),
-            config,
-        );
-        let mut events = tracker.subscribe();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        let span = tracker.start_span("work", None, SourceSelection::All);
-        tracker.stop_span(span, Work::default());
-        let stopped = Instant::now();
-        tokio::time::timeout(WAIT, async {
-            loop {
-                if let Ok(TrackerEvent::SpanSettled { report }) = events.recv().await
-                    && report.span_id == span
-                {
-                    break;
-                }
-            }
-        })
-        .await
-        .expect("the span settles");
-        stopped.elapsed()
-    };
-
-    let queued = settles_after_stop(UnreadyActions::QUEUE).await;
-    let skipped = settles_after_stop(UnreadyActions::SKIP).await;
-    assert!(queued >= Duration::from_millis(150), "Queue waits for the read after the cooldown: {queued:?}");
-    assert!(skipped < Duration::from_millis(100), "Skip answers at once: {skipped:?}");
-}
-
-/// AC/MEAS-1, AC/MEAS-14
-#[tokio::test]
-async fn each_request_lands_once_and_cuts_inside_a_cooldown_send_one() {
-    let tracker = tracker(
-        Test::new(POWER, Behaviour::Answer).cooling(Cooldown::After(Duration::from_millis(300))),
-        Test::new(GRID, Behaviour::Answer).cooling(Cooldown::After(Duration::from_secs(60))),
-    );
-    let mut events = tracker.subscribe();
-    for _ in 0..20 {
-        let span = tracker.start_span("burst", None, SourceSelection::All);
-        tracker.stop_span(span, Work::default());
-    }
-    tracker.finish().await.expect("the session finishes");
-
-    let landed = landed(&mut events).await;
-    let mut ids: Vec<_> = landed.iter().map(|(_, id, _)| *id).collect();
-    ids.sort();
-    ids.dedup();
-    assert_eq!(ids.len(), landed.len(), "no request lands twice");
-    for (provider, _, sources) in &landed {
-        assert_eq!(*sources, vec![source(*provider)], "an observation for each source it serves");
-    }
-    let power = landed.iter().filter(|(provider, ..)| *provider == POWER).count();
-    assert!(power <= 2, "40 cuts sent the power provider {power} requests after the opening one");
+    let then: Vec<ProviderId> = landed(&mut events).await.into_iter().map(|(provider, ..)| provider).collect();
+    assert_eq!((first, then[0]), (GRID, POWER), "the grid returned first, then power: {then:?}");
 }
 
 /// AC/ENG-65
