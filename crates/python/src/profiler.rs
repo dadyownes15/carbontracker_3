@@ -41,6 +41,12 @@ pub fn paced(cooldowns: &HashMap<SourceId, Cooldown>, kind: impl Fn(SourceId) ->
     paced
 }
 
+/// The sources in `paced` that a span's selection `matches`: the only ones it
+/// waits for at its start and its stop.
+pub fn selected(paced: &Paced, matches: impl Fn(SourceId) -> bool) -> Paced {
+    paced.iter().filter(|&&(source, ..)| matches(source)).copied().collect()
+}
+
 /// When a span may start, and which sources its start cut reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Start {
@@ -324,6 +330,24 @@ mod tests {
     #[test]
     fn a_source_never_read_is_ready_now() {
         assert_eq!(start(&both(), &HashMap::new(), at(2.0)), Start { at: at(2.0), read: vec![NVML(), RAPL()] });
+    }
+
+    /// AC/PY-58
+    #[test]
+    fn a_span_starts_without_waiting_on_a_paced_source_it_does_not_select() {
+        // NVML is past half its cooldown, so a span on it waits until 2.0.
+        let newest = HashMap::from([(NVML(), at(1.0)), (RAPL(), at(1.0))]);
+        assert_eq!(start(&both(), &newest, at(1.6)).at, at(2.0));
+        let rapl = selected(&both(), |source| source == RAPL());
+        assert_eq!(start(&rapl, &newest, at(1.6)), Start { at: at(1.6), read: vec![RAPL()] });
+    }
+
+    /// AC/PY-58
+    #[test]
+    fn a_span_stops_without_waiting_on_a_paced_source_it_does_not_select() {
+        let newest = HashMap::from([(NVML(), at(1.0)), (RAPL(), at(1.0))]);
+        assert_eq!(ready(&both(), &newest, at(1.6)), at(2.0));
+        assert_eq!(ready(&selected(&both(), |source| source == RAPL()), &newest, at(1.6)), at(1.6));
     }
 
     /// AC/PRF-9

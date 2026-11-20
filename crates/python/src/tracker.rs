@@ -35,6 +35,9 @@ pub struct Tracker {
     freshness: Arc<Freshness>,
     /// The sources a profiled span waits for, with their cooldowns.
     paced: Paced,
+    /// The paced sources of each open span whose selection leaves some out;
+    /// every other span waits for all of `paced`.
+    narrowed: Mutex<HashMap<usize, Paced>>,
     fetch_timeout: Duration,
     epochs: Arc<Epochs>,
     /// The longest an ended epoch takes to settle: the next readout, and its fetch.
@@ -179,6 +182,7 @@ impl Tracker {
             run: Mutex::new(Some(run)),
             freshness,
             paced,
+            narrowed: Mutex::new(HashMap::new()),
             fetch_timeout,
             epochs: settled_epochs,
             settle_within,
@@ -214,7 +218,10 @@ impl Tracker {
         sources: Option<Vec<String>>,
     ) -> PyResult<usize> {
         let selection = self.selection(domains, sources)?;
-        self.with_run(|run| run.start_span(name, parent.map(SpanId::new), selection).get())
+        let paced = self.paced_for(&selection);
+        let span = self.with_run(|run| run.start_span(name, parent.map(SpanId::new), selection).get())?;
+        self.remember(span, paced);
+        Ok(span)
     }
 
     /// Report work on an open span. Never waits.
@@ -224,12 +231,13 @@ impl Tracker {
 
     /// Stop a span with the work it did. Never waits.
     fn stop_span(&self, span: usize, work: Vec<(String, f64)>) -> PyResult<()> {
+        self.forget(span);
         let work: Work = work.into_iter().collect();
         self.with_run(|run| run.stop_span(SpanId::new(span), work))
     }
 
-    /// Open a span on a read: wait until every paced source is fresh or
-    /// ready, start, then wait for the reads the start asked for. Returns the
+    /// Open a span on a read: wait until every paced source it selects is
+    /// fresh or ready, start, then wait for the reads the start asked for. Returns the
     /// span, the seconds waited before and after its start, and the sources
     /// whose read came late.
     #[pyo3(signature = (name, parent=None, *, domains=None, sources=None))]
@@ -242,32 +250,35 @@ impl Tracker {
         sources: Option<Vec<String>>,
     ) -> PyResult<(usize, f64, f64, Vec<String>)> {
         let selection = self.selection(domains, sources)?;
+        let paced = self.paced_for(&selection);
         let began = Instant::now();
-        let plan = profiler::start(&self.paced, &self.freshness.newest(), chrono::Utc::now());
+        let plan = profiler::start(&paced, &self.freshness.newest(), chrono::Utc::now());
         py.detach(|| sleep_until(plan.at));
         let after = chrono::Utc::now();
         let before = began.elapsed().as_secs_f64();
         let cut = Instant::now();
         let span = self.with_run(|run| run.start_span(name, parent.map(SpanId::new), selection).get())?;
-        let read: Paced = self.paced.iter().filter(|(source, ..)| plan.read.contains(source)).copied().collect();
+        let read: Paced = paced.iter().filter(|(source, ..)| plan.read.contains(source)).copied().collect();
+        self.remember(span, paced);
         let deadline = Instant::now() + self.fetch_timeout;
         let late = py.detach(|| self.await_fresh(span, &read, after, deadline));
         Ok((span, before, cut.elapsed().as_secs_f64(), late.iter().map(ToString::to_string).collect()))
     }
 
     /// Stop a span on a read: cut it now, keep it open until every paced
-    /// source has landed a sample stamped after the cut, then stop it.
-    /// Returns the seconds waited and the sources whose read came late.
+    /// source it selects has landed a sample stamped after the cut, then
+    /// stop it. Returns the seconds waited and the sources whose read came late.
     fn stop_span_paced(&self, py: Python<'_>, span: usize, work: Vec<(String, f64)>) -> PyResult<(f64, Vec<String>)> {
         let began = Instant::now();
+        let paced = self.forget(span);
         let mut late = Vec::new();
-        if !self.paced.is_empty() {
+        if !paced.is_empty() {
             let after = chrono::Utc::now();
             self.with_run(|run| run.mark(SpanId::new(span), Work::default()))?;
-            let due = profiler::ready(&self.paced, &self.freshness.newest(), after);
+            let due = profiler::ready(&paced, &self.freshness.newest(), after);
             let until_due = due.signed_duration_since(after).to_std().unwrap_or_default();
             let deadline = Instant::now() + until_due + self.fetch_timeout;
-            late = py.detach(|| self.await_fresh(span, &self.paced, after, deadline));
+            late = py.detach(|| self.await_fresh(span, &paced, after, deadline));
         }
         let work: Work = work.into_iter().collect();
         self.with_run(|run| run.stop_span(SpanId::new(span), work))?;
@@ -330,6 +341,25 @@ impl Tracker {
                 let _ = self.with_run(|run| run.mark(SpanId::new(span), Work::default()));
             }
         }
+    }
+
+    /// The paced sources `selection` matches.
+    fn paced_for(&self, selection: &SourceSelection) -> Paced {
+        profiler::selected(&self.paced, |id| {
+            self.sources.iter().any(|(source, description)| *source == id && selection.matches(id, description))
+        })
+    }
+
+    /// Keeps the paced sources of open `span`, if its selection left some out.
+    fn remember(&self, span: usize, paced: Paced) {
+        if paced.len() != self.paced.len() {
+            self.narrowed.lock().expect("not poisoned").insert(span, paced);
+        }
+    }
+
+    /// The paced sources `span` waits for, no longer kept once it stops.
+    fn forget(&self, span: usize) -> Paced {
+        self.narrowed.lock().expect("not poisoned").remove(&span).unwrap_or_else(|| self.paced.clone())
     }
 
     /// The selection a span bills: `domains` by name, or `sources` by id.

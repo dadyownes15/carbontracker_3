@@ -73,7 +73,7 @@ has no part in it (AC/PROF-20). <!-- AC/PY-56 -->
 **Epochs select every power source.** <!-- AC/PY-57 -->
 
 **In profiler mode a span waits only for the paced sources it selects**
-([11](../11-profiler.md)), at its start and at its stop. <!-- AC/PY-58 unbuilt -->
+([11](../11-profiler.md)), at its start and at its stop. <!-- AC/PY-58 -->
 
 ## What it never does
 
