@@ -28,7 +28,7 @@ run. <!-- AC/FE-59 -->
 | is not found / cannot be run | `127` / `126`, naming the program on stderr | <!-- AC/FE-30 -->
 
 **A failure to finish the session is reported on stderr and never changes the
-exit code.** Tracking never decides how the command went. <!-- AC/FE-31 untested -->
+exit code.** Tracking never decides how the command went. <!-- AC/FE-31 -->
 
 **Ctrl-C reaches the command, not carbontracker.** carbontracker stays to
 print the closing block and finish the record, then exits `130`. <!-- AC/FE-32 -->
