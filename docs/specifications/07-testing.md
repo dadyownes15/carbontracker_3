@@ -152,6 +152,13 @@ stating the rule it broke, and CI replays it on every run with no GHC.
 The generated suite runs when the engine or the suite changes, and
 nightly; when it fails, CI keeps its counterexamples. <!-- AC/TST-37 -->
 
+**A suite run locally is not run again in CI.** `quickcheck/run.sh` runs
+it and, when it passes, writes `quickcheck/passed`: a hash of the engine,
+the suite and `Cargo.lock`, and the number of cases. A pull request or push
+whose stamp matches the code it checks out, at 100 cases or more, skips the
+suite; any change after the run breaks the match. The nightly run ignores
+the stamp. <!-- AC/TST-38 -->
+
 ## Generators and oracles
 
 **A generator produces realistic input; an oracle says what the answer should
