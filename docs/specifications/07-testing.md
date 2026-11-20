@@ -155,7 +155,7 @@ nightly; when it fails, CI keeps its counterexamples. <!-- AC/TST-37 -->
 **A suite run locally is not run again on a pull request.**
 `quickcheck/run.sh` runs it and, when it passes, writes `quickcheck/passed`:
 a hash of the engine, the suite and `Cargo.lock`, and the number of cases.
-CI skips the suite only when all of these hold: <!-- AC/TST-38 -->
+CI skips the suite only when all of these hold: <!-- AC/TST-38 script -->
 
 - the run is for a pull request; a push to `main` and the nightly run always
   run the suite;
