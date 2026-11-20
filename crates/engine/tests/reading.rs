@@ -230,46 +230,44 @@ async fn observed(events: &mut Subscription) -> BTreeMap<SourceId, Vec<Observati
     .expect("the session ends")
 }
 
-/// AC/MEAS-3, AC/MEAS-24, AC/MEAS-25, AC/MEAS-30, AC/ENG-37
+/// AC/MEAS-30, AC/ENG-37
 #[tokio::test]
 async fn a_read_that_hangs_delays_nothing_else() {
-    // Waiting on the hung read would take the whole timeout; the bounds are a third of it.
-    let timeout = Duration::from_secs(3);
-    let (hanging, _release) = Test::new(POWER, Behaviour::Answer).blocking();
-    let (tracker, mut events) = subscribed(hanging, Test::new(GRID, Behaviour::Answer), timing_out(timeout));
-    let mut cuts = tracker.subscribe();
+    // Waiting on the hung read would take at least the timeout, 5 s; the
+    // bounds below are 1 s. What happens at the timeout is `tests::engine`'s.
+    let (hanging, release) = Test::new(POWER, Behaviour::Answer).blocking();
+    let (tracker, mut events) = subscribed(hanging, Test::new(GRID, Behaviour::Answer), config());
+    let bound = Duration::from_secs(1);
 
     let began = Instant::now();
     let span = tracker.start_span("work", None, SourceSelection::All);
     let (reply, answer) = oneshot::channel();
     tracker.query(TrackerQuery::Catalog { reply });
     answer.await.unwrap().expect("a query is answered while the read hangs");
-    assert!(began.elapsed() < timeout / 3, "the query did not wait on the read");
+    assert!(began.elapsed() < bound, "the query did not wait on the read");
+
     tracker.mark(span, Work::default());
+    let (mut marked, mut grid_read) = (false, false);
     tokio::time::timeout(WAIT, async {
-        while !matches!(cuts.recv().await.expect("the stream is open"), TrackerEvent::Marked { .. }) {}
+        while !(marked && grid_read) {
+            match events.recv().await.expect("the stream is open") {
+                TrackerEvent::Marked { .. } => marked = true,
+                TrackerEvent::ReadoutLanded { outcomes, .. } => {
+                    grid_read |= outcomes.get(&source(GRID)).is_some_and(|o| matches!(o, Observation::Samples(_)));
+                }
+                _ => {}
+            }
+        }
     })
     .await
-    .expect("the mark is announced");
-    assert!(began.elapsed() < timeout / 3, "events were delivered while the read hangs");
+    .expect("the mark is announced and the grid read");
+    assert!(began.elapsed() < bound, "events were delivered, and the grid read, while the read hangs");
 
+    // Dropped, the sender releases this read and every one after it.
+    drop(release);
     tracker.stop_span(span, Work::default());
-    tracker.finish().await.expect("the session finishes despite the hung read");
-    assert!(began.elapsed() < 2 * timeout + Duration::from_secs(1), "nothing waited past AC/ENG-27's bound");
-
-    let observed = observed(&mut events).await;
-    let power = &observed[&source(POWER)];
-    assert_eq!(power[0], Observation::Failed(Failure::TimedOut), "the opening read timed out");
-    // Every request after the hung one fails with it. Nothing was read while
-    // the read hung.
-    assert!(
-        power[1..].iter().all(|o| matches!(o, Observation::Failed(Failure::Stalled | Failure::TimedOut))),
-        "the hung read is still out: {power:?}"
-    );
-    assert!(
-        observed[&source(GRID)].iter().any(|o| matches!(o, Observation::Samples(_))),
-        "the grid was read meanwhile"
-    );
+    tracker.finish().await.expect("the session finishes once the read returns");
+    assert!(began.elapsed() < bound * 2, "nothing waited on a timeout");
 }
 
 /// AC/MEAS-26, AC/MEAS-27, AC/MEAS-57
