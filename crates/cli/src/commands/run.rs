@@ -39,6 +39,7 @@ pub fn track(args: &Args, command: &[OsString]) -> Result<i32, String> {
     let run = carbontracker_run::start(RunConfig { probe, tracker, frontend: "cli",
         project: args.project().map(str::to_owned),
         name: args.name().map(str::to_owned),
+        command: args::hide_keys(std::env::args()),
         sinks,
     }, |_, _| ())
         .map_err(|error| error.to_string())?;

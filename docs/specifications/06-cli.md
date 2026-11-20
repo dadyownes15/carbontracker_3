@@ -176,6 +176,13 @@ rows. <!-- AC/FE-60 -->
 
 **A key is shown only by its last four characters**, never whole. <!-- AC/FE-53 -->
 
+**No message prints a key whole**, from any of the places a key comes from:
+`--api-keys`, `CARBONTRACKER_EM_KEY`, the config file, or `init`'s prompt. An
+error about a key names what is wrong with it and repeats none of it. <!-- AC/FE-84 -->
+
+**No file but the config file holds a key.** The run's record names the
+command with each `--api-keys` value replaced by `…`. <!-- AC/FE-85 -->
+
 **`check` writes no file and runs no command.** The view reads the sources
 for as long as it is open, and nothing else. <!-- AC/FE-54 -->
 

@@ -45,6 +45,7 @@ fn config(sinks: Vec<Box<dyn Sink>>) -> RunConfig {
         frontend: "test",
         project: None,
         name: None,
+        command: Vec::new(),
         sinks,
     }
 }

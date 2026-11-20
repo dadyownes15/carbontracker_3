@@ -137,7 +137,11 @@ pub fn readable_by_others(path: &Path) -> bool {
 
 fn read(path: &Path) -> Result<Option<File>, String> {
     match fs::read_to_string(path) {
-        Ok(text) => toml::from_str(&text).map(Some).map_err(|error| format!("{}: {error}", path.display())),
+        // The error's own text quotes the file, keys and all: only its message and line.
+        Ok(text) => toml::from_str(&text).map(Some).map_err(|error| {
+            let line = error.span().map_or(1, |span| text[..span.start].matches('\n').count() + 1);
+            format!("{}: line {line}: {}", path.display(), error.message())
+        }),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(format!("cannot read {}: {error}", path.display())),
     }
