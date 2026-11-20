@@ -681,3 +681,37 @@ fn report_on_a_missing_path_exits_2() {
     let dir = tempfile::tempdir().unwrap();
     bare(dir.path()).args(["report", "nowhere"]).assert().code(2).stderr(contains("nowhere"));
 }
+
+/// A run killed with SIGKILL, carbontracker and command together, as a
+/// scheduler kills a job: `report` lists it as incomplete. AC/REC-23, AC/FE-22
+#[cfg(unix)]
+#[test]
+fn a_run_killed_with_sigkill_is_listed_as_incomplete() {
+    use std::os::unix::process::CommandExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let started = dir.path().join("started");
+    let mut run = std::process::Command::new(assert_cmd::cargo::cargo_bin("carbontracker"));
+    run.current_dir(dir.path())
+        .env_remove("CARBONTRACKER_EM_KEY")
+        .env("XDG_CONFIG_HOME", dir.path().join("config"))
+        .env("XDG_DATA_HOME", dir.path().join("data"))
+        .args(["--power", "10", "--intensity", "100", "sh", "-c", "touch started; sleep 60"])
+        .stderr(std::process::Stdio::null())
+        .process_group(0);
+    let mut child = run.spawn().unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while !started.exists() {
+        assert!(std::time::Instant::now() < deadline, "the command never started");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // Some readouts after the command started, then the whole group at once.
+    std::thread::sleep(Duration::from_millis(1500));
+    let group = format!("-{}", child.id());
+    std::process::Command::new("kill").args(["-KILL", "--", &group]).status().unwrap();
+    child.wait().unwrap();
+
+    let report = bare(dir.path()).args(["report", "logs"]).assert().success();
+    let stdout = stdout(&report);
+    assert!(stdout.contains("sh -c touch started; sleep 60") && stdout.contains("incomplete"), "{stdout}\n{}", stderr(&report));
+}

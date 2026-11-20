@@ -107,12 +107,55 @@ impl<W: Write> LineWriter<W> {
         Self { out }
     }
 
+    /// Each line reaches the file at once, so a killed run leaves every line
+    /// it wrote. AC/REC-23
     fn write(&mut self, record: &Record) -> io::Result<()> {
         serde_json::to_writer(&mut self.out, record)?;
-        self.out.write_all(b"\n")
+        self.out.write_all(b"\n")?;
+        self.out.flush()
     }
 
     fn flush(&mut self) -> io::Result<()> {
         self.out.flush()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use super::*;
+
+    /// A writer that keeps only what was flushed, as a file keeps only what
+    /// reached it before a kill.
+    #[derive(Clone, Default)]
+    struct Kept {
+        pending: Arc<Mutex<Vec<u8>>>,
+        flushed: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Write for Kept {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.pending.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            let pending = std::mem::take(&mut *self.pending.lock().unwrap());
+            self.flushed.lock().unwrap().extend(pending);
+            Ok(())
+        }
+    }
+
+    /// AC/REC-23
+    #[test]
+    fn each_line_reaches_the_file_once_written() {
+        let kept = Kept::default();
+        let mut lines = LineWriter::new(BufWriter::new(kept.clone()));
+        for count in 1..=3 {
+            lines.write(&Record { at: chrono::DateTime::UNIX_EPOCH, line: Line::Gap }).unwrap();
+            let flushed = String::from_utf8(kept.flushed.lock().unwrap().clone()).unwrap();
+            assert_eq!(flushed.lines().count(), count, "{flushed:?}");
+        }
     }
 }
