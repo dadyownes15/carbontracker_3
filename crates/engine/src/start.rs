@@ -11,7 +11,7 @@ use crate::application::runtime::run_tracker;
 use crate::application::tracker::Tracker;
 use crate::config::{ConfigError, TrackerConfig};
 use crate::ports::outbound::Clock;
-use crate::application::subscribers::Subscription;
+use crate::application::subscribers::{DEFAULT_CAPACITY, Subscriber, Subscription, subscription};
 use crate::sources::Sources;
 
 /// Start a tracker over `sources`, and return its handle. Never probes:
@@ -27,7 +27,7 @@ use crate::sources::Sources;
 /// [ConfigError] if `config` is invalid; nothing is started.
 pub fn start(sources: Sources, config: TrackerConfig) -> Result<TrackerHandle, ConfigError> {
     config.validate()?;
-    start_with(sources, config, Arc::new(SystemClock), |_| ())
+    start_with(sources, config, Arc::new(SystemClock), None)
 }
 
 /// [start], with a subscription taken before the engine reads anything, so
@@ -39,27 +39,29 @@ pub fn start(sources: Sources, config: TrackerConfig) -> Result<TrackerHandle, C
 /// [ConfigError] if `config` is invalid; nothing is started.
 pub fn start_subscribed(sources: Sources, config: TrackerConfig) -> Result<(TrackerHandle, Subscription), ConfigError> {
     config.validate()?;
-    let mut subscription = None;
-    let handle = start_with(sources, config, Arc::new(SystemClock), |handle| subscription = Some(handle.subscribe()))?;
-    Ok((handle, subscription.expect("subscribed before the engine started")))
+    let (subscriber, subscription) = subscription(DEFAULT_CAPACITY);
+    let handle = start_with(sources, config, Arc::new(SystemClock), Some(subscriber))?;
+    Ok((handle, subscription))
 }
 
 /// [start] with `clock` stamping every cut, and `config` already valid.
+/// `subscriber` is added before the engine reads anything.
 pub(crate) fn start_with(
     sources: Sources,
     config: TrackerConfig,
     clock: Arc<dyn Clock>,
-    before: impl FnOnce(&TrackerHandle),
+    subscriber: Option<Subscriber>,
 ) -> Result<TrackerHandle, ConfigError> {
     let (sender, receiver) = mpsc::unbounded_channel();
     let handle = TrackerHandle::new(sender, Arc::clone(&clock));
-    // Queued before the engine thread exists, so handled before any read.
-    before(&handle);
 
     // Each provider's cooldown is asked here, on the caller's thread.
     let (readers, catalog) = sources.split(&config.fetch)?;
     let opened_at = clock.now();
-    let tracker = Tracker::new(catalog, config.pue, config.announce, opened_at);
+    let mut tracker = Tracker::new(catalog, config.pue, config.announce, opened_at);
+    if let Some(subscriber) = subscriber {
+        tracker.subscribe(subscriber);
+    }
     let readout_interval = config.readout_interval;
     let tracker_clock = Arc::clone(&clock);
     std::thread::Builder::new()

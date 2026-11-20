@@ -125,7 +125,7 @@ proptest! {
                     Read::Panics { .. } => Returned::Panicked("boom".to_owned()),
                     Read::Hangs => unreachable!("a hung read never returns"),
                 };
-                gate.returned(returned, now)
+                gate.returned(returned, now, now)
             } else if arrivals.get(next).map(|(at, ..)| *at) == Some(now) {
                 let (_, index, asker) = arrivals[next];
                 next += 1;
@@ -246,7 +246,7 @@ proptest! {
                     Read::Panics { .. } => Returned::Panicked("boom".to_owned()),
                     Read::Hangs => unreachable!("a hung read never returns"),
                 };
-                gate.returned(returned, now)
+                gate.returned(returned, now, now)
             } else if cuts_at.get(next) == Some(&now) {
                 next += 1;
                 let state = gate.state_at(now);

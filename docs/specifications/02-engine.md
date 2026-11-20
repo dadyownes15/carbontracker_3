@@ -169,9 +169,10 @@ pub enum Cooldown {
 }
 ```
 
-**A provider's read may block.** The engine lends each read a thread, for that
-read alone. A provider that waits on a network or a process blocks; one that
-wants async code runs it on a runtime it owns. <!-- AC/ENG-37 -->
+**A provider's read may block.** The engine gives each provider a worker
+thread of its own, which runs every read of it. A provider that waits on a
+network or a process blocks; one that wants async code runs it on a runtime it
+owns. <!-- AC/ENG-37 -->
 
 **A provider bounds its own waits.** It gives an HTTP client or a child
 process a timeout of its own, of a few seconds, so that its read returns
@@ -278,8 +279,8 @@ provider's cooldown, and the evidence for it, is in [03](03-providers.md). <!-- 
   events, because a silent gap in a record is worse than a known end.
 - **The provider port says nothing about when** so that a provider's
   correctness never depends on how often it is read.
-- **A read may block** because a thread per read is cheap for a handful of
-  providers, and a blocking read can always be abandoned.
+- **A read may block** because a worker thread per provider is cheap for a
+  handful of providers, and a blocking read can always be abandoned.
 - **Every read answers every source** so that no source can starve.
 - **Averages are stamped at the middle of their window** because stamping them
   at the end bills half a window's draw to the wrong side of a cut.

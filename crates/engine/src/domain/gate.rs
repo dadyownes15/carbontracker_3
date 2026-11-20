@@ -114,14 +114,17 @@ impl<R: Clone, T> Gate<R, T> {
         answered(effects, request, Answer::Skipped(skip))
     }
 
-    /// The read in flight returned at `now`.
-    pub(crate) fn returned(&mut self, returned: Returned<T>, now: Instant) -> Vec<Effect<R, T>> {
+    /// The read in flight returned at `returned_at`, and is handled at `now`.
+    /// Whether it was in time is judged by `returned_at`, so the verdict does
+    /// not depend on how late the read is handled.
+    pub(crate) fn returned(&mut self, returned: Returned<T>, returned_at: Instant, now: Instant) -> Vec<Effect<R, T>> {
         let mut effects = Vec::new();
-        let State::Reading { request, .. } =
+        let State::Reading { request, started } =
             std::mem::replace(&mut self.state, State::Idle { done: false })
         else {
             return effects;
         };
+        let late = returned_at >= started + self.timeout;
         match returned {
             Returned::Panicked(message) => {
                 self.state = State::Retired;
@@ -134,11 +137,19 @@ impl<R: Clone, T> Gate<R, T> {
                 return effects;
             }
             Returned::Read { answer, complete } => {
-                let done = complete && self.cooldown == Cooldown::Never;
+                let done = complete && self.cooldown == Cooldown::Never && !late;
                 self.state = State::Idle { done };
                 // An abandoned read's answer is dropped.
                 if let Some(request) = request {
-                    effects.push(Effect::Answer(request, Answer::Read(answer)));
+                    if late {
+                        // As if the deadline had been handled first.
+                        effects.push(Effect::Answer(request, Answer::Failed(Failure::TimedOut)));
+                        if let Some(queued) = self.queued.take() {
+                            effects.push(Effect::Answer(queued, Answer::Failed(Failure::Stalled)));
+                        }
+                    } else {
+                        effects.push(Effect::Answer(request, Answer::Read(answer)));
+                    }
                 }
             }
         }
@@ -309,7 +320,7 @@ mod tests {
             "a provider starts with its cooldown passed"
         );
         assert_eq!(
-            gate.returned(read("a"), t0 + ms(5)),
+            gate.returned(read("a"), t0 + ms(5), t0 + ms(5)),
             answer(1, Answer::Read("a"))
         );
         assert_eq!(
@@ -324,7 +335,7 @@ mod tests {
     fn inside_the_cooldown_a_request_is_skipped_or_queued() {
         let (mut skip, t0) = skipping();
         skip.request(1, Asker::Cut, t0);
-        skip.returned(read("a"), t0 + ms(5));
+        skip.returned(read("a"), t0 + ms(5), t0 + ms(5));
         assert_eq!(
             skip.request(2, Asker::Cut, t0 + ms(500)),
             answer(2, Answer::Skipped(Skip::Cooldown))
@@ -332,7 +343,7 @@ mod tests {
 
         let (mut queue, t0) = queuing();
         queue.request(1, Asker::Cut, t0);
-        queue.returned(read("a"), t0 + ms(5));
+        queue.returned(read("a"), t0 + ms(5), t0 + ms(5));
         assert_eq!(queue.request(2, Asker::Cut, t0 + ms(500)), vec![]);
         assert_eq!(queue.wake_at(), Some(t0 + COOLDOWN));
         assert_eq!(
@@ -356,7 +367,7 @@ mod tests {
         queue.request(1, Asker::Cut, t0);
         assert_eq!(queue.request(2, Asker::Cut, t0 + ms(5)), vec![]);
         // The read outlives the cooldown, so the queued one starts as it returns.
-        let mut effects = queue.returned(read("a"), t0 + COOLDOWN + ms(1));
+        let mut effects = queue.returned(read("a"), t0 + COOLDOWN + ms(1), t0 + COOLDOWN + ms(1));
         assert_eq!(effects.remove(0), Effect::Answer(1, Answer::Read("a")));
         assert_eq!(effects, start(2));
     }
@@ -379,7 +390,7 @@ mod tests {
 
         let (mut gate, t0) = self::gate(Cooldown::After(COOLDOWN), policy);
         gate.request(1, Asker::Cut, t0);
-        gate.returned(read("a"), t0 + ms(5));
+        gate.returned(read("a"), t0 + ms(5), t0 + ms(5));
         assert_eq!(
             gate.request(2, Asker::Cut, t0 + ms(10)),
             answer(2, Answer::Skipped(Skip::Cooldown)),
@@ -398,7 +409,7 @@ mod tests {
             answer(3, Answer::Skipped(Skip::Busy))
         );
 
-        gate.returned(read("a"), t0 + ms(5));
+        gate.returned(read("a"), t0 + ms(5), t0 + ms(5));
         assert_eq!(
             gate.request(4, Asker::Cut, t0 + ms(6)),
             answer(4, Answer::Skipped(Skip::Cooldown))
@@ -414,7 +425,7 @@ mod tests {
             gate.request(2, Asker::Watchdog, t0 + ms(1)),
             answer(2, Answer::Skipped(Skip::Busy))
         );
-        gate.returned(read("a"), t0 + ms(5));
+        gate.returned(read("a"), t0 + ms(5), t0 + ms(5));
         assert_eq!(
             gate.request(3, Asker::Watchdog, t0 + ms(6)),
             answer(3, Answer::Skipped(Skip::Cooldown))
@@ -464,7 +475,7 @@ mod tests {
         gate.request(1, Asker::Cut, t0);
         gate.advance(t0 + TIMEOUT);
         assert_eq!(
-            gate.returned(read("late"), t0 + TIMEOUT + ms(1)),
+            gate.returned(read("late"), t0 + TIMEOUT + ms(1), t0 + TIMEOUT + ms(1)),
             vec![],
             "its answer is discarded"
         );
@@ -472,6 +483,35 @@ mod tests {
             gate.request(2, Asker::Cut, t0 + TIMEOUT + ms(2)),
             start(2),
             "the provider is idle again"
+        );
+    }
+
+    /// AC/MEAS-98
+    #[test]
+    fn a_read_that_returned_in_time_is_kept_however_late_it_is_seen() {
+        let (mut gate, t0) = queuing();
+        gate.request(1, Asker::Cut, t0);
+        assert_eq!(
+            gate.returned(read("a"), t0 + TIMEOUT - ms(50), t0 + TIMEOUT + ms(100)),
+            answer(1, Answer::Read("a")),
+            "it returned before its deadline"
+        );
+    }
+
+    /// AC/MEAS-56, AC/MEAS-98
+    #[test]
+    fn a_read_that_returned_past_its_deadline_times_out_however_soon_it_is_seen() {
+        let (mut gate, t0) = queuing();
+        gate.request(1, Asker::Cut, t0);
+        gate.request(2, Asker::Cut, t0 + ms(1));
+        let late = t0 + TIMEOUT + ms(1);
+        assert_eq!(
+            gate.returned(read("late"), late, late),
+            vec![
+                Effect::Answer(1, Answer::Failed(Failure::TimedOut)),
+                Effect::Answer(2, Answer::Failed(Failure::Stalled))
+            ],
+            "the same as if the deadline had been seen first"
         );
     }
 
@@ -483,7 +523,7 @@ mod tests {
         gate.request(2, Asker::Cut, t0 + ms(1));
         let panicked = Answer::Failed(Failure::Panicked("boom".to_owned()));
         assert_eq!(
-            gate.returned(Returned::Panicked("boom".to_owned()), t0 + ms(5)),
+            gate.returned(Returned::Panicked("boom".to_owned()), t0 + ms(5), t0 + ms(5)),
             vec![
                 Effect::Answer(1, panicked.clone()),
                 Effect::Answer(2, panicked)
@@ -504,7 +544,7 @@ mod tests {
         gate.request(1, Asker::Cut, t0);
         gate.advance(t0 + TIMEOUT);
         assert_eq!(
-            gate.returned(Returned::Panicked("late".to_owned()), t0 + TIMEOUT + ms(1)),
+            gate.returned(Returned::Panicked("late".to_owned()), t0 + TIMEOUT + ms(1), t0 + TIMEOUT + ms(1)),
             vec![]
         );
         assert_eq!(
@@ -524,13 +564,14 @@ mod tests {
                 complete: false,
             },
             t0 + ms(1),
+            t0 + ms(1),
         );
         assert_eq!(
             gate.request(2, Asker::Cut, t0 + ms(2)),
             start(2),
             "not yet answered: no cooldown holds it"
         );
-        gate.returned(read("all"), t0 + ms(3));
+        gate.returned(read("all"), t0 + ms(3), t0 + ms(3));
         assert_eq!(
             gate.request(3, Asker::Cut, t0 + ms(4)),
             answer(3, Answer::Done)
@@ -549,7 +590,7 @@ mod tests {
         gate.request(1, Asker::Cut, t0);
         gate.request(2, Asker::Cut, t0 + ms(1));
         assert_eq!(
-            gate.returned(read("all"), t0 + ms(2)),
+            gate.returned(read("all"), t0 + ms(2), t0 + ms(2)),
             vec![
                 Effect::Answer(1, Answer::Read("all")),
                 Effect::Answer(2, Answer::Done)

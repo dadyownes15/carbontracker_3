@@ -102,10 +102,11 @@ provider's cooldown and builds nothing else: no pacing, no timeout and no
 thread. No provider set can break how the engine schedules reads. <!-- AC/MEAS-29 -->
 
 **Provider code never runs on the tracker thread:** not its read, and not its
-drop, also when a thread for a read cannot be started. A slow, blocking or hung read never delays commands, queries or event
-delivery, and a read never delays another provider's read. Each read runs on a
-thread of its own. A provider's cooldown is asked once, in `start`, before the
-tracker runs. <!-- AC/MEAS-30 -->
+drop, also when its worker thread cannot be started. A slow, blocking or hung read never delays commands, queries or event
+delivery, and a read never delays another provider's read. Each provider is
+read on a worker thread of its own, which holds it for the whole session and
+drops it when the session ends. A provider's cooldown is asked once, in
+`start`, before the tracker runs. <!-- AC/MEAS-30 -->
 
 **A provider is in one of five states,** which its gate decides at each
 moment:
@@ -206,6 +207,18 @@ the read answers is answered `Failed(TimedOut)`. The read is abandoned: its
 result is discarded when it returns, and the provider stays out until then. A
 request queued behind it is answered `Failed(Stalled)`. <!-- AC/MEAS-56 -->
 
+**Whether a read was in time is judged by when it returned**, not by when the
+tracker handles it. A read that returned before its deadline answers its
+request however late the tracker handles it; one that returned after is
+answered `Failed(TimedOut)`, as if the deadline had been handled first. A read
+that has returned is handled before any cut or deadline still waiting, so
+neither can time it out. <!-- AC/MEAS-98 -->
+
+> NVML, timeout 1 s. A read starts at 0 s and returns at 0.95 s, while the
+> tracker thread is held up until 1.10 s. The tracker then handles the read
+> before the deadline, and keeps its samples. Had the read returned at 1.05 s,
+> it would be answered `Failed(TimedOut)` whichever the tracker handled first.
+
 **A panicking provider is retired, alone.** The request the panicking read
 answers is answered `Failed(Panicked)`, with the panic's message, and so is a
 request queued behind it. Every later request is answered `Failed(Retired)`,
@@ -237,8 +250,8 @@ dropped,** and a source it serves but left out is `Failed(Unanswered)`. A read
 that fails as a whole fails every source the provider serves. <!-- AC/MEAS-59 -->
 
 **The engine drops every provider when the session ends, off the tracker
-thread.** A provider still out on an abandoned read is dropped by that read's
-thread when it returns. <!-- AC/MEAS-60 -->
+thread:** each on its worker. A provider still out on an abandoned read is
+dropped by its worker when that read returns. <!-- AC/MEAS-60 -->
 
 ## The watchdog
 
@@ -380,10 +393,11 @@ as each provider's readouts land in the order its requests were sent. <!-- AC/ME
 - **At most one request is queued** so that the work a provider does is bounded
   by time, not by how many cuts arrive, and each read's samples land in one
   readout.
-- **Every read runs on a thread of its own** so that a blocking or hung read
-  can always be abandoned, and never stalls another provider's read.
-- **A provider returns to the engine only when its read does** so that one read
-  in flight is a fact of ownership, not a limit someone has to apply.
+- **Every provider is read on a worker thread of its own** so that a blocking
+  or hung read can always be abandoned, never stalls another provider's read,
+  and a provider always runs on the same thread.
+- **A read is stamped when it returns** so that its verdict depends on the
+  read, not on how busy the tracker thread was.
 - **`Reading` and `Observation` are separate types** so that each outcome has
   one owner, and neither side can report the other's decision.
 - **A cut asks only the providers of what it cuts**, so a span never waits on

@@ -25,8 +25,8 @@ pub(crate) struct Tracker {
     finish_at: Option<Timestamp>,
     /// Every finish waiting for the session's final report.
     finishing: Vec<Reply<SessionReport>>,
-    /// The session has ended and the tracker should stop.
-    done: bool,
+    /// The session's report once it has ended: the tracker should stop.
+    ended: Option<SessionReport>,
 }
 
 /// How much a [Tracker] holds; see [Tracker::held].
@@ -58,7 +58,7 @@ impl Tracker {
             waiting: Vec::new(),
             finish_at: None,
             finishing: Vec::new(),
-            done: false,
+            ended: None,
         }
     }
 
@@ -68,6 +68,11 @@ impl Tracker {
     /// request answers each source it cuts. A refused one (a closed parent, a
     /// repeated stop, a mark on a closed span), every query and every
     /// subscription ask nothing.
+    /// Add `subscriber` before any message is handled, so it hears every event.
+    pub(crate) fn subscribe(&mut self, subscriber: crate::application::subscribers::Subscriber) {
+        self.subscribers.add(subscriber);
+    }
+
     pub(crate) fn handle(&mut self, msg: TrackerMessage, relying: &mut dyn Relying) {
         match msg {
             TrackerMessage::Command(command) => self.command(command, relying),
@@ -102,6 +107,10 @@ impl Tracker {
     /// answer `reply` once everything has settled. A finish arriving while
     /// the session is finishing waits for the same report.
     fn finish(&mut self, at: Timestamp, reply: Reply<SessionReport>, relying: &mut dyn Relying) {
+        if let Some(report) = &self.ended {
+            let _ = reply.send(Ok(report.clone()));
+            return;
+        }
         self.finishing.push(reply);
         if self.finish_at.is_some() {
             return;
@@ -112,14 +121,14 @@ impl Tracker {
 
     /// Whether the session has ended, so the tracker should stop.
     pub(crate) fn is_done(&self) -> bool {
-        self.done
+        self.ended.is_some()
     }
 
     /// Once the last cut has been accounted, announce the session's end and
     /// answer every finish.
     fn end_if_drained(&mut self) {
         let Some(at) = self.finish_at else { return };
-        if self.done || !self.session.is_drained() {
+        if self.ended.is_some() || !self.session.is_drained() {
             return;
         }
         let report = self.session.session_report(at);
@@ -129,7 +138,7 @@ impl Tracker {
         for reply in self.finishing.drain(..) {
             let _ = reply.send(Ok(report.clone()));
         }
-        self.done = true;
+        self.ended = Some(report);
     }
 
     /// Place the cut `command` asks for. A refused command places nothing.

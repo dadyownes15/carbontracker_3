@@ -16,10 +16,21 @@ use crate::domain::{Observation, ProviderError, ProviderId, ReadoutId, ReadoutRe
 use crate::ports::outbound::{Provider, ProviderResponse, Reading};
 
 /// What a worker sends back: what the read came back with, or the panic
-/// that ended the worker.
+/// that ended the worker, and when the read returned.
 pub(crate) struct ReadReturn {
     provider: ProviderId,
     result: Result<Result<ProviderResponse, ProviderError>, String>,
+    returned_at: Instant,
+}
+
+impl ReadReturn {
+    pub(crate) fn new(
+        provider: ProviderId,
+        result: Result<Result<ProviderResponse, ProviderError>, String>,
+        returned_at: Instant,
+    ) -> Self {
+        Self { provider, result, returned_at }
+    }
 }
 
 /// Where workers send what they read.
@@ -135,7 +146,7 @@ impl Readers {
         }
     }
 
-    /// A read came back at `now`. Returns every readout that has landed.
+    /// A read came back, handled at `now`. Returns every readout that has landed.
     pub(crate) fn returned(&mut self, read: ReadReturn, now: Instant, wall: Timestamp) -> Vec<ReadoutResponse> {
         let mut landed = Vec::new();
         let Some(reader) = self.readers.get_mut(&read.provider) else {
@@ -149,7 +160,7 @@ impl Readers {
             }
             Err(message) => Returned::Panicked(message),
         };
-        let effects = reader.gate.returned(returned, now);
+        let effects = reader.gate.returned(returned, read.returned_at, now);
         self.apply(read.provider, effects, wall, &mut landed);
         self.watchdog(read.provider, now, wall, &mut landed);
         landed
@@ -281,7 +292,8 @@ impl Readers {
         let sent = reader.worker.as_ref().is_some_and(|worker| worker.send(()).is_ok());
         (!sent).then(|| {
             let failed = Returned::Panicked("no thread could be started for the provider".to_owned());
-            reader.gate.returned(failed, Instant::now())
+            let now = Instant::now();
+            reader.gate.returned(failed, now, now)
         })
     }
 }
@@ -304,13 +316,15 @@ fn spawn_worker(
         drop(taken);
         while inbox.recv().is_ok() {
             let result = panic::catch_unwind(AssertUnwindSafe(|| provider.read())).map_err(panic_message);
+            // Stamped here, so the engine judges the read by when it returned.
+            let returned_at = Instant::now();
             if result.is_err() {
                 // A provider that panicked is never read again.
                 let _ = panic::catch_unwind(AssertUnwindSafe(move || drop(provider)));
-                let _ = returns.send(ReadReturn { provider: id, result });
+                let _ = returns.send(ReadReturn::new(id, result, returned_at));
                 return;
             }
-            if returns.send(ReadReturn { provider: id, result }).is_err() {
+            if returns.send(ReadReturn::new(id, result, returned_at)).is_err() {
                 break;
             }
         }

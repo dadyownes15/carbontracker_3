@@ -548,17 +548,22 @@ async fn finishing_waits_no_longer_than_the_timeout_for_a_provider_that_queues()
 async fn under_queue_a_failed_read_answers_its_request() {
     let failing = Test::new(POWER, Behaviour::Fail);
     let reads = Arc::clone(&failing.reads);
-    let tracker = tracker(failing, Test::new(GRID, Behaviour::Answer));
-    let mut events = tracker.subscribe();
+    let mut sources = Sources::new();
+    sources.add_provider(POWER, failing, [(source(POWER), power())]).unwrap();
+    sources.add_provider(GRID, Test::new(GRID, Behaviour::Answer), [(source(GRID), grid())]).unwrap();
+    // A timeout no busy host reaches, so every read answers for itself.
+    let config = TrackerConfig { fetch: FetchPolicy { timeout: Duration::from_secs(5), ..config().fetch }, ..config() };
+    let (tracker, mut events) = start_subscribed(sources, config).expect("a valid config");
 
     let span = tracker.start_span("work", None, SourceSelection::All);
     tracker.stop_span(span, Work::default());
     let began = Instant::now();
     tracker.finish().await.expect("the session finishes");
-    assert!(began.elapsed() < TIMEOUT, "nothing waited on a failed read: {:?}", began.elapsed());
+    // A retried request would hold finish for its retry window.
+    assert!(began.elapsed() < Duration::from_secs(1), "nothing waited on a failed read: {:?}", began.elapsed());
 
-    // The opening cut, the stop and the finish ask at most once each.
-    assert!(reads.load(Ordering::SeqCst) <= 3, "no request was sent again: {} reads", reads.load(Ordering::SeqCst));
+    // The opening cut, the start, the stop and the finish each send at most one.
+    assert!(reads.load(Ordering::SeqCst) <= 4, "no request was sent again: {} reads", reads.load(Ordering::SeqCst));
     let power = &observed(&mut events).await[&source(POWER)];
     assert!(power.iter().all(|o| matches!(o, Observation::Failed(Failure::Provider(_)))), "{power:?}");
 }
