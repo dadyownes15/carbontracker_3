@@ -2,12 +2,13 @@
 //! slurm`) and `report`.
 
 mod check;
-mod init;
+pub(crate) mod init;
 mod report;
 mod run;
-mod slurm;
+pub(crate) mod slurm;
 
 pub use check::check;
+pub(crate) use check::How;
 pub use init::init;
 pub use report::report;
 pub use run::track;

@@ -9,6 +9,7 @@
 
 mod args;
 mod commands;
+mod screen;
 
 use std::ffi::OsString;
 

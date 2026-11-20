@@ -16,6 +16,7 @@ carbontracker = { path = "../engine" }
 carbontracker-providers = { path = "../providers" }
 carbontracker-run = { path = "../run" }
 clap = { version = "4", features = ["derive"] }
+ratatui = "0.30"
 rpassword = "7"
 serde_json = "1"
 thiserror = "2.0.21"

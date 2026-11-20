@@ -11,6 +11,9 @@ use crate::args::{Args, Keys};
 /// Probe, and print one row per value: how it is obtained and by whom. With
 /// `-v`, every candidate's verdict follows.
 pub fn check(args: &Args) -> Result<i32, String> {
+    if crate::screen::available() {
+        return crate::screen::check(args);
+    }
     let keys = args.keys()?;
     let registry = args.registry(&keys)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -32,7 +35,7 @@ pub fn check(args: &Args) -> Result<i32, String> {
 
 /// How a value is obtained, best first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum How {
+pub(crate) enum How {
     Live,
     Stated,
     Modelled,
@@ -40,7 +43,7 @@ enum How {
 }
 
 impl How {
-    fn of(fidelity: Fidelity) -> Self {
+    pub(crate) fn of(fidelity: Fidelity) -> Self {
         match fidelity {
             Fidelity::Measured => Self::Live,
             Fidelity::Stated => Self::Stated,
@@ -49,7 +52,7 @@ impl How {
         }
     }
 
-    fn word(self) -> &'static str {
+    pub(crate) fn word(self) -> &'static str {
         match self {
             Self::Live => "live",
             Self::Stated => "stated",
@@ -60,7 +63,7 @@ impl How {
 
     /// ANSI colour: green for live or stated, yellow for modelled, red for
     /// fallback.
-    fn colour(self) -> &'static str {
+    pub(crate) fn colour(self) -> &'static str {
         match self {
             Self::Live | Self::Stated => "32",
             Self::Modelled => "33",

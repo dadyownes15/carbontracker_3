@@ -217,6 +217,11 @@ impl Args {
     /// # Errors
     ///
     /// A message naming what is wrong, for exit code 2.
+    /// The PUE given, or the default.
+    pub fn pue(&self) -> f64 {
+        self.pue
+    }
+
     pub fn tracker(&self) -> Result<TrackerConfig, String> {
         if !(self.interval.is_finite() && self.interval > 0.0) {
             return Err("--interval must be a number of seconds above zero".to_owned());

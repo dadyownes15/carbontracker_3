@@ -135,7 +135,25 @@ and before the command starts. <!-- AC/FE-50 -->
 
 ## `check`
 
-**`check` prints to stdout one row per value it would use**: power, location,
+**On a terminal, `check` opens a full-screen view**: the emission rate right
+now (power × PUE × intensity, in gCO2eq/h), then one line each for power,
+location, intensity and forecast, with the value, how it is obtained and the
+provider serving it. The values follow each readout until the user presses
+`q`, Esc or Ctrl-C. <!-- AC/FE-77 -->
+
+**A kind nothing serves shows `none`** and points to `check -v`. <!-- AC/FE-78 -->
+
+**`check -v` on a terminal lists every candidate as the probe decides it**:
+serving, standing by (a better candidate serves), declined, or not asked
+for, with its reason, and the selected row's full reason at the bottom. <!-- AC/FE-79 -->
+
+**When the view closes, what it last showed is printed to stdout** as plain
+text, so it stays in the terminal's scrollback. <!-- AC/FE-80 -->
+
+**The view opens only when stdin and stdout are both terminals.** Otherwise
+`check` prints the rows below and exits. <!-- AC/FE-81 -->
+
+**Piped, `check` prints to stdout one row per value it would use**: power, location,
 intensity and forecast, each with how it is obtained (`live`, `stated`,
 `modelled` or `fallback`) and what it is: the power components, the place, the
 kind of intensity and forecast. Power gets one row per way of obtaining it.
@@ -152,7 +170,8 @@ rows. <!-- AC/FE-60 -->
 
 **A key is shown only by its last four characters**, never whole. <!-- AC/FE-53 -->
 
-**`check` starts no run and writes no file.** <!-- AC/FE-54 -->
+**`check` writes no file and runs no command.** The view reads the sources
+for as long as it is open, and nothing else. <!-- AC/FE-54 -->
 
 ## `init`
 
@@ -160,6 +179,11 @@ rows. <!-- AC/FE-60 -->
 key (naming the saved one by its hint), attach carbontracker to a Slurm
 script, check what would be measured, or quit. It comes back to the menu
 after each until the user quits. <!-- AC/FE-65 -->
+
+**On a terminal, `init` runs full screen**: the key is typed masked, the
+Slurm script is picked from a list or typed as a path, the wrapper is shown
+before it is written, and `check` opens in its view. When `init` closes, what
+it did is printed to stdout. <!-- AC/FE-82 -->
 
 **`init` asks for the Electricity Maps key**: with a hidden prompt on a
 terminal, otherwise one line from stdin. It is never a flag, so it never lands
@@ -268,6 +292,9 @@ keeps it whole. The table's times are UTC, and its header says so. <!-- AC/FE-63
   serves the zone it reaches, and the country aggregate when that is reachable.
 - **The wrapper calls carbontracker by absolute path** so that the job finds
   it on the compute node without activating an environment first.
+- **`check` reads the sources live on a terminal** so that the user sees real
+  numbers moving, not only which provider was chosen; piped, it stays a
+  one-shot snapshot that scripts and tests can read.
 - **The wrapper runs the script by absolute path** because Slurm runs a copy
   of the batch script from its spool directory.
 

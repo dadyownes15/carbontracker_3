@@ -63,13 +63,36 @@ fn pick(console: &mut dyn Console, interactive: bool, here: &Path) -> Result<Opt
 }
 
 fn wrap_file(args: &Args, given: &Path, console: &mut dyn Console) -> Result<(), String> {
+    let prepared = prepare(args.log_dir(), given)?;
+    for warning in &prepared.warnings {
+        console.warn(&format!("! {warning}"));
+    }
+    console.say(&write(&prepared)?);
+    Ok(())
+}
+
+/// A wrapper ready to write: where, what it says, and what to warn about.
+#[derive(Debug, Clone)]
+pub struct Prepared {
+    pub target: PathBuf,
+    /// The target as the user named the script: relative stays relative.
+    pub shown: PathBuf,
+    pub text: String,
+    pub warnings: Vec<String>,
+    pub replacing: bool,
+}
+
+/// The wrapper for `given`, logging to `log_dir` (none for `--no-log`),
+/// or why it cannot be written. Writes nothing.
+pub fn prepare(log_dir: Option<&Path>, given: &Path) -> Result<Prepared, String> {
     let text = std::fs::read_to_string(given).map_err(|error| format!("cannot read {}: {error}", given.display()))?;
     if text.contains(MARK) {
         return Err(format!("{} is a wrapper carbontracker init wrote; wrap the original script", given.display()));
     }
     let script = read(&text);
+    let mut warnings = Vec::new();
     if script.directives.is_empty() {
-        console.warn(&format!("! {} has no #SBATCH lines; is it a Slurm script? Wrapping it anyway.", given.display()));
+        warnings.push(format!("{} has no #SBATCH lines; is it a Slurm script? Wrapping it anyway.", given.display()));
     }
     let absolute = given.canonicalize().map_err(|error| format!("cannot read {}: {error}", given.display()))?;
     let target = wrapper_path(&absolute);
@@ -85,15 +108,20 @@ fn wrap_file(args: &Args, given: &Path, console: &mut dyn Console) -> Result<(),
     let carbontracker = std::env::current_exe()
         .and_then(|path| path.canonicalize())
         .map_err(|error| format!("cannot find carbontracker's own path: {error}"))?;
-    let logging = match args.log_dir() {
+    let logging = match log_dir {
         Some(dir) => format!("--log-dir {}", quote(&dir.display().to_string())),
         None => "--no-log".to_owned(),
     };
-    let wrapper = wrap(&script, &absolute, &carbontracker, &logging);
-    write_executable(&target, &wrapper).map_err(|error| format!("cannot write {}: {error}", shown.display()))?;
-    let verb = if replacing { "Replaced" } else { "Wrote" };
-    console.say(&format!("{verb} {}. Submit it with:\n    sbatch {}", shown.display(), shown.display()));
-    Ok(())
+    let text = wrap(&script, &absolute, &carbontracker, &logging);
+    Ok(Prepared { target, shown, text, warnings, replacing })
+}
+
+/// Writes the wrapper, executable, and says how to submit it.
+pub fn write(prepared: &Prepared) -> Result<String, String> {
+    let shown = prepared.shown.display();
+    write_executable(&prepared.target, &prepared.text).map_err(|error| format!("cannot write {shown}: {error}"))?;
+    let verb = if prepared.replacing { "Replaced" } else { "Wrote" };
+    Ok(format!("{verb} {shown}. Submit it with:\n    sbatch {shown}"))
 }
 
 #[cfg(unix)]
@@ -170,7 +198,7 @@ fn quote(value: &str) -> String {
 }
 
 /// Slurm scripts under `root` that are not wrappers, newest first.
-fn find(root: &Path) -> Vec<PathBuf> {
+pub(crate) fn find(root: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
     walk(root, 0, &mut found);
     found.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
@@ -198,7 +226,7 @@ fn walk(dir: &Path, depth: usize, found: &mut Vec<(PathBuf, SystemTime)>) {
 }
 
 /// `jobs/train.sh   train · gpu · 02:00:00  (wrapped)`.
-fn describe(path: &Path, here: &Path) -> String {
+pub(crate) fn describe(path: &Path, here: &Path) -> String {
     let directives = std::fs::read_to_string(path).map(|text| read(&text).directives).unwrap_or_default();
     let value = |long: &str, short: &str| {
         directives.iter().find_map(|directive| {

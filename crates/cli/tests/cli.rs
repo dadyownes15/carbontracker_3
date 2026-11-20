@@ -328,7 +328,7 @@ fn a_gpu_power_replaces_the_gpu() {
         .stderr(contains("readout: static (gpu) 300 W"));
 }
 
-/// AC/FE-52, AC/FE-53, AC/FE-54
+/// AC/FE-52, AC/FE-53, AC/FE-54, AC/FE-81
 #[test]
 fn check_shows_how_each_value_is_obtained_and_where_the_key_came_from() {
     let dir = tempfile::tempdir().unwrap();
