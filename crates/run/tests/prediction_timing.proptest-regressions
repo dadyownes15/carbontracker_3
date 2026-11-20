@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc f3cd66afc548dc743326d9ad79711749c28503596c6b7096c8875a81915f8234 # shrinks to world = World { readout_interval: 12ms, fetch_timeout: 149ms, predict_after: 2, epochs: [5ms, 5ms, 6ms, 57ms], forecast_after: Some(2.989s) }

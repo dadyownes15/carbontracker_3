@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 use std::thread;
+use std::time::Instant;
 
 use carbontracker::{Subscription, SubscriptionEnded, TrackerEvent};
 use tokio::sync::oneshot;
@@ -73,6 +74,29 @@ impl<P: Projection> ForwarderActor<P> {
         }
         self.writer.item(item);
     }
+
+    /// Wakes the projection, then passes on the blocks it returned.
+    fn wake(&self) {
+        let blocks = self.view.lock().wake();
+        for block in blocks {
+            self.writer.item(Item::Block(Arc::from(block)));
+        }
+    }
+
+    /// The next event, or `None` once the projection asked to be woken.
+    fn next(
+        &mut self,
+        clock: &tokio::runtime::Runtime,
+    ) -> Option<Result<TrackerEvent, SubscriptionEnded>> {
+        let wake_at: Option<Instant> = self.view.lock().wake_at();
+        let Some(at) = wake_at else {
+            return Some(self.events.blocking_recv());
+        };
+        let events = &mut self.events;
+        clock.block_on(async move {
+            tokio::time::timeout_at(at.into(), events.recv()).await.ok()
+        })
+    }
 }
 
 /// The run's start and its warnings, its events, how it ended, then closes
@@ -90,9 +114,18 @@ fn run_forwarder<P: Projection>(
     }
     actor.writer.written(started_written);
 
-    // The engine's events, until the session ends or the engine stops.
+    // The engine's events, until the session ends or the engine stops,
+    // waking the projection when it asks.
+    let clock = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("a runtime can be built");
     let ended = loop {
-        match actor.events.blocking_recv() {
+        let Some(next) = actor.next(&clock) else {
+            actor.wake();
+            continue;
+        };
+        match next {
             Ok(event @ TrackerEvent::SessionEnded { .. }) => break Some(event),
             Ok(event) => actor.forward(Item::Event(event)),
             Err(SubscriptionEnded::CutOff) => {

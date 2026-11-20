@@ -75,10 +75,22 @@ emitted too much, or a queue that waits for the grid to get cleaner — because
 all of them are the same problem: watch the stream, keep a little state, answer
 a question about it. <!-- AC/RUN-17 -->
 
+**The prediction is printed no later than one readout interval and two fetch
+timeouts after the epoch it falls due after ends.** That epoch settles within
+one readout and its fetch, and the prediction then waits at most one fetch
+timeout (`Started::fetch_timeout`) for the forecast. A forecast not fetched by
+then is left out, and the prediction says so. <!-- AC/RUN-25 -->
+
 ```rust
 trait Projection {
     /// One item has arrived. Update, and return anything to print.
     fn project(&mut self, item: &Item) -> Vec<Box<dyn Block>>;
+
+    /// When to be woken with no item, e.g. to stop waiting for something.
+    fn wake_at(&self) -> Option<Instant> { None }
+
+    /// Woken with no item. Return anything to print.
+    fn wake(&mut self) -> Vec<Box<dyn Block>> { Vec::new() }
 
     /// Add to the record's header, once, before the run starts.
     fn describe(&self, header: &mut record::Header) {}

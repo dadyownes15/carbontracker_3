@@ -8,6 +8,7 @@ pub mod prediction;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use carbontracker::{Sample, SpanId, SpanReport, TrackerEvent, Usage};
 use carbontracker_providers::{ForecastReport, Forecaster};
@@ -70,6 +71,11 @@ pub struct Predictor {
     /// The epochs settled when `predict_after` of them had: the prediction
     /// is made from these once the forecast is answered.
     due: Option<Measured>,
+    /// How long a due prediction waits for the forecast: the run's fetch
+    /// timeout.
+    fetch_timeout: Duration,
+    /// When a due prediction stops waiting for the forecast.
+    give_up_at: Option<Instant>,
     prediction: Option<Prediction>,
 }
 
@@ -91,6 +97,8 @@ impl Predictor {
             open: HashSet::new(),
             settled: BTreeMap::new(),
             due: None,
+            fetch_timeout: Duration::ZERO,
+            give_up_at: None,
             prediction: None,
         }
     }
@@ -130,6 +138,24 @@ impl Predictor {
             })
     }
 
+    /// The due prediction, once a forecast has been fetched or one fetch
+    /// timeout after falling due without it; at the outcome at the latest,
+    /// so the run's end never loses it.
+    fn predict_if_due(&mut self, at_outcome: bool) -> Vec<Box<dyn Block>> {
+        let (Some(epochs), Some(measured)) = (self.epochs, self.due) else {
+            return Vec::new();
+        };
+        let given_up = self.give_up_at.is_some_and(|at| Instant::now() >= at);
+        if !self.fetched && !given_up && !at_outcome {
+            return Vec::new();
+        }
+        self.due = None;
+        self.give_up_at = None;
+        let prediction = self.predict_from(&measured, epochs);
+        self.prediction = Some(prediction.clone());
+        vec![Box::new(Predicted { epochs, prediction })]
+    }
+
     /// Takes the latest forecast, if one has been fetched. Never waits.
     fn refresh_forecast(&mut self) {
         if let Some(report) = (self.latest.0)() {
@@ -144,6 +170,7 @@ impl Projection for Predictor {
         self.refresh_forecast();
         match item {
             Item::Started(started) => {
+                self.fetch_timeout = started.fetch_timeout;
                 self.projected = started.probe.candidates.iter().any(|candidate| {
                     candidate.name == "projection" && candidate.verdict == "serving"
                 });
@@ -165,22 +192,21 @@ impl Projection for Predictor {
                     && Some(self.settled.len()) == self.predict_after
                 {
                     self.due = Some(self.measured());
+                    self.give_up_at = Some(Instant::now() + self.fetch_timeout);
                 }
             }
             _ => {}
         }
-        // Once a forecast has been fetched; at the outcome at the latest, with
-        // what there is, so the run's end never loses the prediction.
-        let (Some(epochs), Some(measured)) = (self.epochs, self.due) else {
-            return Vec::new();
-        };
-        if !self.fetched && !matches!(item, Item::Outcome(_)) {
-            return Vec::new();
-        }
-        self.due = None;
-        let prediction = self.predict_from(&measured, epochs);
-        self.prediction = Some(prediction.clone());
-        vec![Box::new(Predicted { epochs, prediction })]
+        self.predict_if_due(matches!(item, Item::Outcome(_)))
+    }
+
+    fn wake_at(&self) -> Option<Instant> {
+        self.give_up_at
+    }
+
+    fn wake(&mut self) -> Vec<Box<dyn Block>> {
+        self.refresh_forecast();
+        self.predict_if_due(false)
     }
 
     fn describe(&self, header: &mut record::Header) {
@@ -298,6 +324,11 @@ mod tests {
     }
 
     fn started() -> Item {
+        started_with(Duration::from_secs(10))
+    }
+
+    /// Starts a run whose fetches time out after `fetch_timeout`.
+    fn started_with(fetch_timeout: Duration) -> Item {
         Item::Started(Arc::new(Started {
             header: record::Header {
                 format: record::FORMAT,
@@ -318,7 +349,7 @@ mod tests {
             catalog: CatalogReport::default(),
             served_by: HashMap::new(),
             cooldowns: HashMap::new(),
-            fetch_timeout: std::time::Duration::from_secs(10),
+            fetch_timeout,
             forecast: None,
         }))
     }
@@ -486,6 +517,70 @@ mod tests {
             2,
             "asked for, from every epoch settled"
         );
+    }
+
+    /// AC/RUN-25
+    #[test]
+    fn a_forecast_not_fetched_within_the_fetch_timeout_is_left_out() {
+        let (ask_forecast, _replies) = held();
+        let mut predictor = predictor(10, Some(1), ask_forecast);
+        assert_eq!(
+            project(
+                &mut predictor,
+                &[
+                    started_with(Duration::ZERO),
+                    epoch_started(1),
+                    settled(1, 1.0),
+                    epoch_started(2)
+                ]
+            ),
+            1,
+            "made without waiting for the outcome"
+        );
+        assert!(
+            predictor
+                .prediction()
+                .unwrap()
+                .warnings
+                .contains(&PredictionWarning::NoForecast)
+        );
+    }
+
+    /// AC/RUN-25
+    #[test]
+    fn a_waiting_prediction_is_woken_when_its_fetch_timeout_runs_out() {
+        let (ask_forecast, _replies) = held();
+        let mut predictor = predictor(10, Some(1), ask_forecast);
+        assert_eq!(predictor.wake_at(), None, "nothing due");
+        project(
+            &mut predictor,
+            &[
+                started_with(Duration::from_millis(20)),
+                epoch_started(1),
+                settled(1, 1.0),
+            ],
+        );
+        let at = predictor.wake_at().expect("woken while it waits");
+
+        std::thread::sleep(at.saturating_duration_since(Instant::now()));
+        assert_eq!(predictor.wake().len(), 1, "made with no item");
+        assert_eq!(predictor.wake_at(), None, "made once");
+    }
+
+    /// AC/RUN-25
+    #[test]
+    fn a_forecast_landing_while_idle_is_used_when_woken() {
+        let (ask_forecast, replies) = held();
+        let mut predictor = predictor(10, Some(1), ask_forecast);
+        project(
+            &mut predictor,
+            &[started(), epoch_started(1), settled(1, 1.0)],
+        );
+        assert!(predictor.wake().is_empty(), "nothing fetched yet");
+
+        *replies.lock().unwrap() = Some(Some(forecast(250.0)));
+        assert_eq!(predictor.wake().len(), 1);
+        assert_eq!(predictor.prediction().unwrap().intensity.get(), 250.0);
     }
 
     /// AC/RUN-17
