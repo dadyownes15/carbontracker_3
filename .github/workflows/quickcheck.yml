@@ -3,9 +3,9 @@ name: quickcheck
 # Generated programs replayed through the session and the engine with no
 # threads and no clock. It finds new counterexamples, so it runs when the
 # engine or the suite changes, and nightly; the ones it has found are
-# replayed on every run of ci.yml. A pull request or push whose
-# quickcheck/passed matches the code it checks out was run locally with
-# quickcheck/run.sh, and is not run again; the nightly run always runs.
+# replayed on every run of ci.yml. A pull request whose quickcheck/passed
+# matches the code it checks out was run locally with quickcheck/run.sh, and
+# is not run again. A push to main and the nightly run always run.
 on:
   pull_request:
     paths:
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
       # Run locally on exactly this code, with at least 100 cases.
       - id: stamp
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        if: github.event_name == 'pull_request'
         run: |
           if [ -f quickcheck/passed ] \
             && [ "$(sed -n 1p quickcheck/passed)" = "$(quickcheck/run.sh hash)" ] \
