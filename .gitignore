@@ -15,6 +15,9 @@ x/run-20261103_234511-vqkyq0q7/
 
 # Private example runner.
 examples/run_all.sh
-docs/
+# Working notes, kept out of the public repository.
+docs/plans/
+docs/agents/
+docs/simplify.md
 .claude/
 CLAUDE.md
