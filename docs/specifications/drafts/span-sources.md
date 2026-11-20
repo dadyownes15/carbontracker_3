@@ -35,10 +35,10 @@ for source in gpus.sources.values():
 **`tracker.sources` gives the power sources this tracker measures, as
 `components` leaves them, as `Source`s by id**, from construction on, with
 the ids `session.sources` uses. A `Source` from it is how a span names one
-source: the caller never writes an id. <!-- AC/PY-49 unbuilt -->
+source: the caller never writes an id. <!-- AC/PY-49 -->
 
 **`Source.domain` is the power source's domain**, one of the five names
-above, and `None` for an intensity source. <!-- AC/PY-50 unbuilt -->
+above, and `None` for an intensity source. <!-- AC/PY-50 -->
 
 **A `Span` keeps its selection**: each `with`, decorated call or `start()` of
 it opens a span with the same sources. <!-- AC/PY-51 unbuilt -->
