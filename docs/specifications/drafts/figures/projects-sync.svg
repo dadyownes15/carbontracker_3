@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="610" viewBox="0 0 1000 610" role="img" aria-labelledby="title desc">
+  <title id="title">One project, three machines, one total</title>
+  <desc id="desc">Monday 2 to Friday 6 November. The project file is committed on Monday, so every checkout carries project paper-ct3. Alice runs on her laptop and on the Hendrix cluster, and her collaborator Ben runs on Bob. The laptop and Bob upload each run as it ends; Hendrix's compute nodes have no internet, so Alice syncs from the login node on Wednesday. A killed run is listed but not summed. Uploading r2 a second time on Friday changes nothing. The project's total, 12.93 kWh and 1.62 kg, is what carbontracker report prints over the same records.</desc>
+  <style>
+    svg { --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --faint: #d1d9e0; --lane: #f6f8fa;
+          --done: #2a9d8f; --wait: #e09f3e; --sync: #0969da; --open: #eaeef2; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --faint: #3d444d; --lane: #161b22;
+            --done: #36b3a2; --wait: #e8ab4f; --sync: #4493f8; --open: #21262d; }
+    }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; fill: var(--fg);
+           paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+    .title { font-size: 16px; font-weight: 600; }
+    .muted { fill: var(--muted); }
+    .small { font-size: 11px; }
+    .label { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; fill: var(--muted); }
+    .name { font-weight: 600; }
+    .synctext { fill: var(--sync); font-weight: 600; }
+    .waittext { fill: var(--wait); font-weight: 600; }
+    .bg { fill: var(--bg); }
+    .lane { fill: var(--lane); stroke: var(--faint); }
+    .run { fill: var(--done); }
+    .killed { fill: url(#hatch); stroke: var(--wait); stroke-width: 1; stroke-dasharray: 2 2; }
+    .day { stroke: var(--faint); stroke-width: 1; }
+    .tick { stroke: var(--muted); stroke-width: 1; }
+    .sync { stroke: var(--sync); stroke-width: 1.5; fill: none; }
+    .again { stroke: var(--sync); stroke-width: 1.5; fill: none; stroke-dasharray: 4 3; }
+    .disk { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 1 3; stroke-linecap: round; }
+    .total { stroke: var(--fg); stroke-width: 2; fill: none; }
+    .git { fill: var(--fg); }
+    .rule { stroke: var(--faint); stroke-width: 1; }
+    .rulestrong { stroke: var(--fg); stroke-width: 1; }
+    .arrowhead { fill: var(--sync); }
+  </style>
+  <defs>
+    <pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="5" height="5" fill="var(--bg)"/>
+      <rect width="2" height="5" fill="var(--wait)"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" class="arrowhead"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="610"/>
+
+  <text class="title" x="24" y="32">One project, three machines, one total</text>
+  <text class="muted" x="24" y="52">A paper's experiments, Monday 2 to Friday 6 November. Runs are drawn to scale in time; energy is in kWh, PUE included.</text>
+
+  <!-- Day boundaries -->
+  <g class="day">
+    <line x1="180" y1="76" x2="180" y2="370"/><line x1="330" y1="76" x2="330" y2="370"/>
+    <line x1="480" y1="76" x2="480" y2="370"/><line x1="630" y1="76" x2="630" y2="370"/>
+    <line x1="780" y1="76" x2="780" y2="370"/><line x1="930" y1="76" x2="930" y2="370"/>
+  </g>
+
+  <!-- Git -->
+  <text class="label" x="24" y="98">GIT</text>
+  <path class="git" d="M236,88 L243,95 L236,102 L229,95 z"/>
+  <text class="small" x="250" y="99"><tspan class="name">carbontracker.toml</tspan> committed: project <tspan class="name">paper-ct3</tspan>, id <tspan class="name">7f3k2q</tspan>. Every checkout carries it, so every run below is the project's.</text>
+
+  <!-- Laptop -->
+  <text class="label" x="24" y="144">LAPTOP</text>
+  <text class="small muted" x="24" y="160">alice</text>
+  <rect class="lane" x="180" y="124" width="750" height="44" rx="3"/>
+  <rect class="run" x="242.5" y="146" width="7" height="14"/>
+  <text class="small" x="254" y="157">r1 debug · 0.02</text>
+  <rect class="run" x="830" y="146" width="5" height="14"/>
+  <text class="small" x="826" y="139" text-anchor="end">r4 plots · 0.01</text>
+
+  <!-- Hendrix -->
+  <text class="label" x="24" y="196">HENDRIX</text>
+  <text class="small muted" x="24" y="212">alice, Slurm job</text>
+  <rect class="lane" x="180" y="176" width="750" height="44" rx="3"/>
+  <rect class="run" x="386.25" y="198" width="37.5" height="14"/>
+  <text class="small" x="386" y="191">r2 train, 4 GPUs · 9.80</text>
+  <rect class="killed" x="542.5" y="198" width="12.5" height="14"/>
+  <text class="small waittext" x="542" y="191">r3 killed</text>
+  <line class="disk" x1="426" y1="216" x2="577" y2="216"/>
+
+  <!-- Bob -->
+  <text class="label" x="24" y="248">BOB</text>
+  <text class="small muted" x="24" y="264">ben, collaborator</text>
+  <rect class="lane" x="180" y="228" width="750" height="44" rx="3"/>
+  <rect class="run" x="686.25" y="250" width="56.25" height="14"/>
+  <text class="small" x="686" y="243">r5 ablation · 3.10</text>
+
+  <!-- Sync arrows -->
+  <line class="sync" x1="249" y1="161" x2="249" y2="288" marker-end="url(#arrow)"/>
+  <line class="sync" x1="580" y1="213" x2="580" y2="288" marker-end="url(#arrow)"/>
+  <text class="small synctext" x="574" y="246" text-anchor="end">sync from the login node</text>
+  <text class="small muted" x="574" y="261" text-anchor="end">r2 and r3</text>
+  <line class="sync" x1="742.5" y1="265" x2="742.5" y2="288" marker-end="url(#arrow)"/>
+  <line class="sync" x1="833" y1="161" x2="833" y2="288" marker-end="url(#arrow)"/>
+  <line class="again" x1="880" y1="161" x2="880" y2="288" marker-end="url(#arrow)"/>
+  <text class="small synctext" x="884" y="157">r2 again</text>
+
+  <!-- Server: the project's total, to scale (0 to 13 kWh over 52 px) -->
+  <text class="label" x="24" y="314">SERVER</text>
+  <text class="small muted" x="24" y="330">project total</text>
+  <rect class="lane" x="180" y="292" width="750" height="78" rx="3"/>
+  <polyline class="total" points="180,364 249,364 249,363.9 580,363.9 580,324.7 742.5,324.7 742.5,312.3 833,312.3 833,312.3 930,312.3"/>
+  <text class="small" x="255" y="358">0.02</text>
+  <text class="small name" x="586" y="318">9.82</text>
+  <text class="small muted" x="586" y="340">r3 listed, not summed</text>
+  <text class="small name" x="748" y="306">12.92</text>
+  <text class="small name" x="838" y="306">12.93</text>
+  <text class="small synctext" x="884" y="330">already held:</text>
+  <text class="small synctext" x="884" y="345">no change</text>
+
+  <!-- Axis -->
+  <line class="tick" x1="180" y1="378" x2="930" y2="378"/>
+  <g class="tick">
+    <line x1="180" y1="378" x2="180" y2="383"/><line x1="330" y1="378" x2="330" y2="383"/>
+    <line x1="480" y1="378" x2="480" y2="383"/><line x1="630" y1="378" x2="630" y2="383"/>
+    <line x1="780" y1="378" x2="780" y2="383"/><line x1="930" y1="378" x2="930" y2="383"/>
+  </g>
+  <g class="small muted" text-anchor="middle">
+    <text x="255" y="398">Mon 2 Nov</text><text x="405" y="398">Tue 3</text><text x="555" y="398">Wed 4</text>
+    <text x="705" y="398">Thu 5</text><text x="855" y="398">Fri 6</text>
+  </g>
+
+  <!-- Legend -->
+  <rect class="run" x="180" y="416" width="14" height="10"/>
+  <text class="small" x="200" y="425">run, complete</text>
+  <rect class="killed" x="296" y="416" width="14" height="10"/>
+  <text class="small" x="316" y="425">run with no session line</text>
+  <line class="disk" x1="462" y1="421" x2="486" y2="421"/>
+  <text class="small" x="492" y="425">on disk, not yet uploaded</text>
+  <line class="sync" x1="642" y1="421" x2="664" y2="421" marker-end="url(#arrow)"/>
+  <text class="small" x="672" y="425">upload</text>
+  <line class="again" x1="722" y1="421" x2="744" y2="421" marker-end="url(#arrow)"/>
+  <text class="small" x="752" y="425">same run, same bytes</text>
+
+  <!-- Report -->
+  <text class="label" x="24" y="462">REPORT</text>
+  <g class="small muted">
+    <text x="120" y="462">machine</text><text x="210" y="462">person</text><text x="300" y="462">runs</text>
+  </g>
+  <g class="small muted" text-anchor="end">
+    <text x="600" y="462">energy</text><text x="720" y="462">grid</text><text x="830" y="462">CO2e</text>
+  </g>
+  <line class="rule" x1="120" y1="470" x2="840" y2="470"/>
+  <g class="small">
+    <text x="120" y="488">laptop</text><text x="210" y="488">alice</text><text x="300" y="488">2</text>
+    <text x="120" y="508">hendrix</text><text x="210" y="508">alice</text><text x="300" y="508">1, and 1 incomplete, not summed</text>
+    <text x="120" y="528">bob</text><text x="210" y="528">ben</text><text x="300" y="528">1</text>
+  </g>
+  <g class="small" text-anchor="end">
+    <text x="600" y="488">0.03 kWh</text><text x="720" y="488">143 g/kWh</text><text x="830" y="488">4.29 g</text>
+    <text x="600" y="508">9.80 kWh</text><text x="720" y="508">120 g/kWh</text><text x="830" y="508">1 176 g</text>
+    <text x="600" y="528">3.10 kWh</text><text x="720" y="528">143 g/kWh</text><text x="830" y="528">443 g</text>
+  </g>
+  <line class="rulestrong" x1="120" y1="536" x2="840" y2="536"/>
+  <g class="small name">
+    <text x="120" y="554">paper-ct3</text><text x="210" y="554">2 people</text><text x="300" y="554">4</text>
+  </g>
+  <g class="small name" text-anchor="end">
+    <text x="600" y="554">12.93 kWh</text><text x="830" y="554">1.62 kg</text>
+  </g>
+  <text class="small muted" x="24" y="584">The server's report is carbontracker report over the same records. Ben runs carbontracker pull, then carbontracker report, and reads the same 12.93 kWh.</text>
+  <text class="small muted" x="24" y="600">A run is known by its id and its bytes, so a copy uploaded twice, or read from two folders, counts once.</text>
+</svg>

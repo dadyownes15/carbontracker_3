@@ -48,8 +48,8 @@ any candidate runs. <!-- AC/PROV-4 -->
 |---|---|
 | Power | RAPL (Linux) → NVML energy → NVML power → IOReport (macOS) → macmon (macOS) → powermetrics (macOS) → generic CPU | <!-- AC/PROV-5 -->
 | Location | IP geolocation, else none, meaning the global average | <!-- AC/PROV-6 -->
-| Intensity | Electricity Maps → country average → global average (475 gCO2e/kWh) | <!-- AC/PROV-7 -->
-| Forecast | Electricity Maps forecast → the current intensity held flat | <!-- AC/PROV-8 -->
+| Intensity | Electricity Maps → the open sources of [13](13-open-intensity.md) → country average → global average (475 gCO2e/kWh) | <!-- AC/PROV-7 -->
+| Forecast | Electricity Maps forecast → the forecast of the open source that won intensity → the current intensity held flat | <!-- AC/PROV-8 -->
 
 **Every chain ends in a candidate that cannot fail**, so probing always
 produces an answer, at worst a modelled average rather than a reading. A run
@@ -95,8 +95,8 @@ this. <!-- AC/PROV-15 -->
 
 **The forecast is not a source.** It is never billed, so the engine never sees
 it. The registry resolves it next to the sources, for the grid the run is
-billed against: the Electricity Maps forecast, otherwise the resolved
-intensity held flat. <!-- AC/PROV-16 -->
+billed against: the Electricity Maps forecast, otherwise the forecast of the
+open source billed, otherwise the resolved intensity held flat. <!-- AC/PROV-16 -->
 
 | `Forecaster` | |
 |---|---|

@@ -70,3 +70,4 @@ down the furniture rather than the promise.
 | [09](09-profiling.md) | Spans | The timeline, attribution, settling, reports |
 | [10](10-python.md) | `carbontracker`, the package | What users call: `CarbonTracker`, spans, `track`, `report` |
 | [11](11-profiler.md) | `carbontracker`, the package in profiler mode | Waiting for reads, the baseline, the profiler's settings and report |
+| [13](13-open-intensity.md) | Open intensity sources | Energinet, NESO and Energy-Charts: the grids each reads, and their place in the chains |

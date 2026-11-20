@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="610" viewBox="0 0 1000 610" role="img" aria-labelledby="title desc">
+  <title id="title">A coding-agent turn: the tools measured here, the model estimated elsewhere</title>
+  <desc id="desc">One turn of a coding agent over 64 seconds. Hooks open the turn and a span per tool. The laptop is measured throughout: 38 W while pytest runs in the Bash tool, 9 W otherwise. Three model calls run at the provider; each one's token counts arrive as a telemetry event a few seconds after it ends, the last one after the turn has stopped, and each lands on turn 1 by its prompt id. Local 0.403 Wh measured, remote 6.60 Wh modelled, 7.01 Wh and 1.95 g in all.</desc>
+  <style>
+    svg { --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --faint: #d1d9e0; --lane: #f6f8fa;
+          --done: #2a9d8f; --ext: #8250df; --extfill: #ede4fb; --open: #eaeef2; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --faint: #3d444d; --lane: #161b22;
+            --done: #36b3a2; --ext: #a371f7; --extfill: #2b2240; --open: #21262d; }
+    }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; fill: var(--fg);
+           paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; }
+    .title { font-size: 16px; font-weight: 600; }
+    .muted { fill: var(--muted); }
+    .small { font-size: 11px; }
+    .label { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; fill: var(--muted); }
+    .name { font-weight: 600; }
+    .exttext { fill: var(--ext); font-weight: 600; }
+    .ext { fill: var(--ext); }
+    .bg { fill: var(--bg); }
+    .lane { fill: var(--lane); stroke: var(--faint); }
+    .span { fill: var(--open); stroke: var(--fg); stroke-width: 1; }
+    .call { fill: var(--extfill); stroke: var(--ext); stroke-width: 1.2; }
+    .power { fill: var(--done); fill-opacity: .85; }
+    .hook { fill: var(--fg); }
+    .cut { stroke: var(--fg); stroke-width: 1; stroke-dasharray: 2 3; opacity: .6; }
+    .lag { stroke: var(--ext); stroke-width: 1.2; stroke-dasharray: 3 2; fill: none; }
+    .tick { stroke: var(--muted); stroke-width: 1; }
+    .rule { stroke: var(--faint); stroke-width: 1; }
+    .rulestrong { stroke: var(--fg); stroke-width: 1; }
+    .ontext { fill: var(--bg); stroke: none; font-weight: 600; }
+  </style>
+
+  <rect class="bg" width="1000" height="610"/>
+
+  <text class="title" x="24" y="32">A coding-agent turn: the tools measured here, the model estimated elsewhere</text>
+  <text class="muted" x="24" y="52">One turn, "make the failing test pass", on a laptop. Time in seconds from the prompt.</text>
+
+  <!-- Cut guides at the hooks that open and close spans -->
+  <g class="cut">
+    <line x1="170" y1="92" x2="170" y2="310"/><line x1="278" y1="92" x2="278" y2="310"/>
+    <line x1="662" y1="92" x2="662" y2="310"/><line x1="734" y1="92" x2="734" y2="310"/>
+    <line x1="746" y1="92" x2="746" y2="310"/><line x1="866" y1="92" x2="866" y2="310"/>
+  </g>
+
+  <!-- Hooks -->
+  <text class="label" x="24" y="88">HOOKS</text>
+  <g class="hook">
+    <circle cx="170" cy="92" r="4"/><circle cx="278" cy="92" r="4"/><circle cx="662" cy="92" r="4"/>
+    <circle cx="734" cy="92" r="4"/><circle cx="746" cy="92" r="4"/><circle cx="866" cy="92" r="4"/>
+  </g>
+  <g class="small muted">
+    <text x="176" y="84">prompt</text><text x="284" y="84">Bash starts</text><text x="668" y="84">ends</text>
+    <text x="740" y="80" text-anchor="middle">Edit</text><text x="872" y="84">stop</text>
+  </g>
+
+  <!-- Spans -->
+  <text class="label" x="24" y="134">SPANS</text>
+  <rect class="span" x="170" y="116" width="696" height="22" rx="3"/>
+  <text class="name" x="178" y="131">turn 1</text>
+  <rect class="span" x="278" y="144" width="384" height="22" rx="3"/>
+  <text class="name" x="286" y="159">tool: Bash</text>
+  <text class="small muted" x="358" y="159">ran pytest -x; only the tool's name is recorded</text>
+  <rect class="span" x="734" y="144" width="12" height="22" rx="2"/>
+  <text class="small name" x="752" y="159">tool: Edit</text>
+
+  <!-- Model calls -->
+  <text class="label" x="24" y="196">MODEL CALLS</text>
+  <text class="small muted" x="24" y="212">at the provider</text>
+  <rect class="lane" x="170" y="178" width="768" height="58" rx="3"/>
+  <rect class="call" x="170" y="184" width="108" height="20" rx="3"/>
+  <text class="small" x="176" y="198">call 1 · <tspan class="exttext">2.16 Wh</tspan></text>
+  <rect class="call" x="662" y="184" width="72" height="20" rx="3"/>
+  <text class="small" x="667" y="198">2 · <tspan class="exttext">2.64 Wh</tspan></text>
+  <rect class="call" x="746" y="184" width="120" height="20" rx="3"/>
+  <text class="small" x="752" y="198">3 · <tspan class="exttext">1.79 Wh</tspan></text>
+  <!-- Token events arrive late; each lands on turn 1 by prompt id -->
+  <path class="lag" d="M278,204 L278,222 L308,222"/>
+  <path class="ext" d="M314,216 L320,222 L314,228 L308,222 z"/>
+  <path class="lag" d="M734,204 L734,222 L764,222"/>
+  <path class="ext" d="M770,216 L776,222 L770,228 L764,222 z"/>
+  <path class="lag" d="M866,204 L866,222 L896,222"/>
+  <path class="ext" d="M902,216 L908,222 L902,228 L896,222 z"/>
+  <text class="small" x="328" y="226">token event arrives, lands on <tspan class="name">turn 1</tspan></text>
+  <text class="small exttext" x="914" y="216">after stop:</text>
+  <text class="small exttext" x="914" y="231">by prompt id</text>
+
+  <!-- Local power -->
+  <text class="label" x="24" y="272">THIS LAPTOP</text>
+  <text class="small muted" x="24" y="288">measured</text>
+  <rect class="lane" x="170" y="252" width="768" height="58" rx="3"/>
+  <polygon class="power" points="170,306 170,294 278,294 278,255 662,255 662,294 938,294 938,306"/>
+  <text class="small ontext" x="290" y="272">38 W · pytest, billed to tool: Bash</text>
+  <text class="small" x="176" y="288">9 W</text>
+  <text class="small" x="672" y="288">9 W · turn 1, then the session</text>
+
+  <!-- Axis -->
+  <line class="tick" x1="170" y1="320" x2="938" y2="320"/>
+  <g class="tick">
+    <line x1="170" y1="320" x2="170" y2="325"/><line x1="290" y1="320" x2="290" y2="325"/>
+    <line x1="410" y1="320" x2="410" y2="325"/><line x1="530" y1="320" x2="530" y2="325"/>
+    <line x1="650" y1="320" x2="650" y2="325"/><line x1="770" y1="320" x2="770" y2="325"/>
+    <line x1="890" y1="320" x2="890" y2="325"/>
+  </g>
+  <g class="small muted" text-anchor="middle">
+    <text x="170" y="338">0 s</text><text x="290" y="338">10</text><text x="410" y="338">20</text><text x="530" y="338">30</text>
+    <text x="650" y="338">40</text><text x="770" y="338">50</text><text x="890" y="338">60 s</text>
+  </g>
+
+  <!-- Legend -->
+  <circle class="hook" cx="176" cy="360" r="4"/>
+  <text class="small" x="186" y="364">hook: opens or closes a span</text>
+  <rect class="call" x="358" y="355" width="16" height="10" rx="2"/>
+  <text class="small" x="380" y="364">model call, remote</text>
+  <path class="ext" d="M498,354 L504,360 L498,366 L492,360 z"/>
+  <text class="small" x="510" y="364">its tokens, as an external entry</text>
+  <rect class="power" x="694" y="355" width="16" height="10"/>
+  <text class="small" x="716" y="364">power, measured</text>
+
+  <!-- Bill -->
+  <text class="label" x="24" y="404">BILL</text>
+  <g class="small muted">
+    <text x="120" y="404">part</text><text x="420" y="404">where</text><text x="530" y="404">how</text>
+  </g>
+  <g class="small muted" text-anchor="end">
+    <text x="750" y="404">energy</text><text x="860" y="404">CO2e</text>
+  </g>
+  <line class="rule" x1="120" y1="412" x2="870" y2="412"/>
+  <g class="small">
+    <text x="120" y="430">tool: Bash</text><text x="420" y="430">this laptop</text><text x="530" y="430">measured</text>
+    <text x="120" y="450">tool: Edit</text><text x="420" y="450">this laptop</text><text x="530" y="450">measured</text>
+    <text x="120" y="470">turn 1, between tools</text><text x="420" y="470">this laptop</text><text x="530" y="470">measured</text>
+    <text x="120" y="490">3 model calls</text><text x="420" y="490">the provider</text><text x="530" y="490" class="exttext">modelled, llm-tokens</text>
+  </g>
+  <g class="small" text-anchor="end">
+    <text x="750" y="430">0.338 Wh</text><text x="860" y="430">0.0483 g</text>
+    <text x="750" y="450">0.0025 Wh</text><text x="860" y="450">0.00036 g</text>
+    <text x="750" y="470">0.0625 Wh</text><text x="860" y="470">0.00894 g</text>
+    <text x="750" y="490" class="exttext">6.60 Wh</text><text x="860" y="490" class="exttext">1.89 g</text>
+  </g>
+  <line class="rulestrong" x1="120" y1="498" x2="870" y2="498"/>
+  <text class="small name" x="120" y="516">turn 1</text>
+  <text class="small muted" x="420" y="516">0.403 Wh measured, 6.60 Wh modelled</text>
+  <g class="small name" text-anchor="end">
+    <text x="750" y="516">7.01 Wh</text><text x="860" y="516">1.95 g</text>
+  </g>
+
+  <text class="small muted" x="24" y="550">Tokens, input / cache read / output: call 1 2 400 / 16 000 / 310 · call 2 2 100 / 19 800 / 540 · call 3 1 100 / 22 000 / 260. Each call counted once, by request id.</text>
+  <text class="small muted" x="24" y="566">Laptop at PUE 1.0 and DK's 143 gCO2e/kWh. Couch's published factors (2026) per 1k tokens: input 0.39 Wh, cache read 0.039 Wh, output 1.95 Wh; 287 gCO2e/kWh.</text>
+  <text class="small muted" x="24" y="582">The session waits for the last token event before it finishes, so no call is lost to the export delay.</text>
+</svg>

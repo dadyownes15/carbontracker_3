@@ -3,13 +3,12 @@
 Live carbon intensity for the grids whose operators or public institutes
 publish it openly, so a run on those grids measures its intensity without an
 Electricity Maps key. Each open source is an intensity candidate in the
-default registry ([03](../03-providers.md)), under the same rules as
+default registry ([03](03-providers.md)), under the same rules as
 Electricity Maps: it reads the location in its own terms or declines, and it
 describes the grid it actually measures. <!-- AC/OPEN-1 unbuilt -->
 
-Adopting this draft amends the intensity and forecast chains of
-[03](../03-providers.md) (AC/PROV-7, AC/PROV-8) and adds rows to its table of
-default providers.
+The chains of [03](03-providers.md) (AC/PROV-7, AC/PROV-8) place them; this
+document says what each one reads and when.
 
 ## The sources
 
