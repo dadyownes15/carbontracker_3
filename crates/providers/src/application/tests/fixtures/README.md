@@ -7,5 +7,9 @@ Answers the fake servers give, in the services' own shape. Written on
   forecast answers, from `https://api.electricitymaps.com/v3/openapi.json`.
   The forecast's datetimes are moved to the present by the tests.
 
+`energy-charts-co2eq.json` is recorded live, from Energy-Charts'
+`/co2eq?country=de` in November 2026. Its intervals are moved to the
+present by the tests.
+
 When a live test (`tests/live_*.rs`) fails on shape, re-record these from the
 live answer, replacing any real IP and location with the ones above.
