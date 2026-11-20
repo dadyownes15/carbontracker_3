@@ -504,26 +504,40 @@ fn an_invalid_location_exits_2_and_runs_nothing() {
     assert!(!dir.path().join("ran").exists());
 }
 
-/// Starts the pinned binary on `command` in its own process group, as a
-/// terminal's foreground job, and waits until the command has started.
+/// Starts the pinned binary on a command that sleeps, in its own process
+/// group, as a terminal's foreground job, and waits until the command is the
+/// sleep itself, so a signal reaches the sleep and not the shell before it.
 #[cfg(unix)]
-fn started(dir: &Path, command: &str) -> std::process::Child {
+fn sleeping(dir: &Path) -> std::process::Child {
     use std::os::unix::process::CommandExt;
 
     let binary = assert_cmd::cargo::cargo_bin("carbontracker");
-    let child = std::process::Command::new(binary)
+    let mut child = std::process::Command::new(binary)
         .current_dir(dir)
         .env_remove("CARBONTRACKER_EM_KEY")
         .env("XDG_CONFIG_HOME", dir.join("config"))
-        .args(["--power", "10", "--intensity", "100", "sh", "-c", command])
+        .args(["--power", "10", "--intensity", "100", "sh", "-c", "echo $$ > started; exec sleep 30"])
         .stderr(std::process::Stdio::piped())
         .process_group(0)
         .spawn()
         .unwrap();
     let started = dir.join("started");
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    while !started.exists() {
-        assert!(std::time::Instant::now() < deadline, "the command never started");
+    // The pid, once written whole, names the sleep once the shell has exec'd.
+    let is_sleeping = || {
+        let pid = std::fs::read_to_string(&started).unwrap_or_default();
+        pid.ends_with('\n')
+            && std::process::Command::new("ps")
+                .args(["-o", "comm=", "-p", pid.trim()])
+                .output()
+                .is_ok_and(|ps| String::from_utf8_lossy(&ps.stdout).trim().ends_with("sleep"))
+    };
+    while !is_sleeping() {
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("the command never started sleeping");
+        }
         std::thread::sleep(Duration::from_millis(20));
     }
     child
@@ -534,7 +548,7 @@ fn started(dir: &Path, command: &str) -> std::process::Child {
 #[test]
 fn ctrl_c_reaches_the_command_and_the_run_is_still_accounted() {
     let dir = tempfile::tempdir().unwrap();
-    let child = started(dir.path(), "touch started; exec sleep 30");
+    let child = sleeping(dir.path());
     // Like a terminal's Ctrl-C: SIGINT to the whole group.
     let group = format!("-{}", child.id());
     std::process::Command::new("kill").args(["-INT", "--", &group]).status().unwrap();
@@ -554,7 +568,7 @@ fn ctrl_c_reaches_the_command_and_the_run_is_still_accounted() {
 #[test]
 fn a_sigterm_to_carbontracker_is_passed_on_to_the_command() {
     let dir = tempfile::tempdir().unwrap();
-    let child = started(dir.path(), "touch started; exec sleep 30");
+    let child = sleeping(dir.path());
     // carbontracker alone, not its group: only forwarding reaches the command.
     std::process::Command::new("kill").args(["-TERM", &child.id().to_string()]).status().unwrap();
 

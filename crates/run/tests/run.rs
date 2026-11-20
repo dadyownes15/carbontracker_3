@@ -321,12 +321,20 @@ fn the_predictor_prints_its_block_and_the_view_reads_it() {
     let dir = tempfile::tempdir().unwrap();
     let folder = Folder::claim(dir.path(), None).unwrap();
     let out = Shared::default();
-    let predictor = |_: &_, forecaster: &_| Predictor::new(Some(10), Some(2), None, LatestForecast::new(forecaster));
+    let shared = Arc::new(Mutex::new(None));
+    let kept = Arc::clone(&shared);
+    let predictor = move |_: &_, forecaster: &carbontracker_providers::Forecaster| {
+        *kept.lock().unwrap() = Some(forecaster.clone());
+        Predictor::new(Some(10), Some(2), None, LatestForecast::new(forecaster))
+    };
     let run = start(
         config(standard_sinks(legacy(&out), Some(&folder)).unwrap()),
         predictor,
     )
     .unwrap();
+    // Until its first fetch finishes there is no forecast yet (AC/RUN-2).
+    let forecaster = shared.lock().unwrap().take().unwrap();
+    wait_until("the forecaster has a curve", || forecaster.latest().flatten().is_some());
     for _ in 0..3 {
         let epoch = run.start_span("epoch", None);
         std::thread::sleep(Duration::from_millis(30));
@@ -544,17 +552,33 @@ impl Gate {
 /// More marks than the engine's subscriber queue holds (1024).
 const BURST: usize = 3000;
 
-/// A burst of marks on one span, sent while `gate` is shut, then finish.
-fn burst(run: carbontracker_run::RunHandle<impl carbontracker_run::Projection>, gate: &Gate) {
-    let span = run.start_span("burst", None);
-    for _ in 0..BURST {
-        run.mark(span, Work::of("steps", 1.0));
+/// Marks sent at a time when the forwarder must keep up: well under the
+/// queue, with room for the readouts in between.
+const BATCH: usize = 300;
+
+/// How long a test waits for the threads of a run before failing.
+const DEADLINE: Duration = Duration::from_secs(20);
+
+/// Waits until `done` holds, failing after [DEADLINE].
+fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + DEADLINE;
+    while !done() {
+        assert!(std::time::Instant::now() < deadline, "timed out waiting until {what}");
+        std::thread::sleep(Duration::from_millis(5));
     }
-    // Time for the engine to announce them all.
-    std::thread::sleep(Duration::from_millis(300));
-    gate.open();
-    run.stop_span(span, Work::default());
-    run.finish(Outcome::Exited { code: 0 }).unwrap();
+}
+
+/// Counts the marks the forwarder has passed on.
+#[derive(Default)]
+struct MarksPassed(usize);
+
+impl carbontracker_run::Projection for MarksPassed {
+    fn project(&mut self, item: &carbontracker_run::Item) -> Vec<Box<dyn carbontracker_run::Block>> {
+        if let carbontracker_run::Item::Event(TrackerEvent::Marked { .. }) = item {
+            self.0 += 1;
+        }
+        Vec::new()
+    }
 }
 
 /// A sink that blocks on its first mark until the gate opens.
@@ -614,8 +638,18 @@ fn start_returns_once_every_sink_has_the_start() {
 fn a_sink_that_blocks_loses_no_events() {
     let (gate, recorder) = (Gate::default(), Recorder::default());
     let slow = Slow { gate: gate.clone(), recorder: recorder.clone() };
-    let run = start(config(vec![Box::new(slow)]), |_, _| ()).unwrap();
-    burst(run, &gate);
+    let run = start(config(vec![Box::new(slow)]), |_, _| MarksPassed::default()).unwrap();
+    let span = run.start_span("burst", None);
+    // In batches the forwarder passes on in turn, while the sink stays blocked.
+    for sent in (BATCH..=BURST).step_by(BATCH) {
+        for _ in 0..BATCH {
+            run.mark(span, Work::of("steps", 1.0));
+        }
+        wait_until("the forwarder passes the batch on", || run.view().read(|marks| marks.0) == sent);
+    }
+    gate.open();
+    run.stop_span(span, Work::default());
+    run.finish(Outcome::Exited { code: 0 }).unwrap();
 
     let seen = recorder.seen();
     assert!(!seen.contains(&"gap".to_owned()), "the forwarder kept up");
@@ -640,9 +674,30 @@ impl carbontracker_run::Projection for Stuck {
 #[test]
 fn a_projection_that_falls_behind_gets_a_gap_and_no_event_after_it() {
     let (gate, recorder) = (Gate::default(), Recorder::default());
-    let stuck = gate.clone();
-    let run = start(config(vec![Box::new(recorder.clone())]), move |_, _| Stuck(stuck)).unwrap();
-    burst(run, &gate);
+    let (stuck, engine) = (gate.clone(), Arc::new(Mutex::new(None)));
+    let kept = Arc::clone(&engine);
+    let run = start(config(vec![Box::new(recorder.clone())]), move |weak: &carbontracker::WeakTrackerHandle, _: &_| {
+        *kept.lock().unwrap() = Some(weak.clone());
+        Stuck(stuck)
+    })
+    .unwrap();
+    // A subscription of the test's own, to know when the engine has
+    // announced every mark.
+    let mut watch = engine.lock().unwrap().take().and_then(|weak| weak.upgrade()).unwrap().subscribe_with_capacity(2 * BURST);
+    let span = run.start_span("burst", None);
+    for _ in 0..BURST {
+        run.mark(span, Work::of("steps", 1.0));
+    }
+    let mut announced = 0;
+    wait_until("the engine announces every mark", || {
+        while let Some(event) = watch.try_recv().unwrap() {
+            announced += usize::from(matches!(event, TrackerEvent::Marked { .. }));
+        }
+        announced == BURST
+    });
+    gate.open();
+    run.stop_span(span, Work::default());
+    run.finish(Outcome::Exited { code: 0 }).unwrap();
 
     let seen = recorder.seen();
     let gap = position(&seen, "gap");

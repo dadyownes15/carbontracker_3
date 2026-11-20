@@ -94,6 +94,9 @@ pub struct Session {
     /// Spans closed, or left with nothing unaccounted, since the last
     /// accounting pass: only they and their ancestors can have settled.
     touched: HashSet<SpanId>,
+    /// Spans the settling passes have looked at, for AC/ENG-66.
+    #[cfg(test)]
+    visited: std::cell::Cell<usize>,
     /// What each span is billed for itself, per source.
     ledgers: HashMap<SpanId, HashMap<SourceId, Usage>>,
     /// Per span, what its forgotten descendants were billed, per source.
@@ -119,6 +122,8 @@ impl Session {
             unaccounted: HashMap::new(),
             closing: HashSet::new(),
             touched: HashSet::new(),
+            #[cfg(test)]
+            visited: std::cell::Cell::new(0),
             ledgers: HashMap::new(),
             folded: HashMap::new(),
             samples: HashMap::new(),
@@ -321,6 +326,8 @@ impl Session {
     fn is_subtree_settled(&self, span: SpanId) -> bool {
         let mut pending = vec![span];
         while let Some(span) = pending.pop() {
+            #[cfg(test)]
+            self.visited.set(self.visited.get() + 1);
             if !self.is_settled(span) {
                 return false;
             }
@@ -995,10 +1002,10 @@ mod tests {
 
     /// An epoch of `n` spans, each cut relying on a readout that lands only
     /// after the epoch stops, with every message followed by an accounting
-    /// pass as the tracker does. Returns how long it took and what settled.
-    fn epoch_of(n: usize) -> (std::time::Duration, usize) {
+    /// pass as the tracker does. Returns how many spans the settling passes
+    /// looked at, and how many settled.
+    fn epoch_of(n: usize) -> (usize, usize) {
         let (mut session, mut sample_store) = session();
-        let began = std::time::Instant::now();
         let epoch = start(&mut session, None, SourceSelection::All, 1, 1);
         for i in 0..n {
             let span = start(&mut session, Some(epoch), SourceSelection::All, 2, 2);
@@ -1009,19 +1016,18 @@ mod tests {
         session.stop(epoch, t(2 + n as i64), ReadoutId(2)).unwrap();
         land(&mut session, &mut sample_store, 1, 1, 10.0, 0.0);
         let settled = land(&mut session, &mut sample_store, 2, 2 + n as i64, 10.0, 0.0).len();
-        (began.elapsed(), settled)
+        (session.visited.get(), settled)
     }
 
     /// AC/ENG-66
     #[test]
     fn settling_grows_linearly_with_the_spans_waiting_to_settle() {
-        // Best of three, so a busy machine slows only some runs.
-        let best = |n| (0..3).map(|_| epoch_of(n)).min().unwrap();
-        let (small, settled) = best(500);
+        let (small, settled) = epoch_of(500);
         assert_eq!(settled, 501);
-        let (large, settled) = best(2000);
+        let (large, settled) = epoch_of(2000);
         assert_eq!(settled, 2001);
-        let ratio = large.as_secs_f64() / small.as_secs_f64();
-        assert!(ratio < 8.0, "4x the spans took {ratio:.1}x as long: {small:?} then {large:?}");
+        // Linear is 4x; checking every waiting span on every pass would be 16x.
+        let ratio = large as f64 / small as f64;
+        assert!(ratio < 4.5, "4x the spans meant {ratio:.1}x the spans looked at: {small} then {large}");
     }
 }

@@ -12,7 +12,7 @@ use carbontracker::{
     Announcements, Fidelity, GridLocation, PowerDomain, PowerScope, Provider, ProviderError,
     ProviderId, ProviderResponse, ReportWarning, Sample, SampleKind, SourceDescription, SourceId,
     SourceSelection, Sources, SpanId, SpanReport, Subscription, TrackerConfig, TrackerEvent,
-    TrackerHandle, TrackerQuery, Work, start,
+    TrackerHandle, TrackerQuery, Work, start, start_subscribed,
 };
 
 const WATTS: f64 = 10.0;
@@ -97,10 +97,30 @@ struct Settled {
 
 impl Settled {
     fn on(tracker: &TrackerHandle) -> Self {
-        Self {
-            events: tracker.subscribe(),
-            reports: HashMap::new(),
-        }
+        Self::from(tracker.subscribe())
+    }
+
+    fn from(events: Subscription) -> Self {
+        Self { events, reports: HashMap::new() }
+    }
+
+    /// Wait until every one of `providers` has landed a readout: the
+    /// opening reads, for a subscription taken at start.
+    async fn opened(&mut self, providers: usize) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let mut landed = std::collections::HashSet::new();
+            while landed.len() < providers {
+                match self.events.recv().await {
+                    Ok(TrackerEvent::ReadoutLanded { outcomes, .. }) => {
+                        landed.extend(outcomes.keys().map(|source| source.provider()));
+                    }
+                    Ok(_) => {}
+                    Err(ended) => panic!("event stream ended: {ended}"),
+                }
+            }
+        })
+        .await
+        .expect("the opening readouts land");
     }
 
     /// `span`'s final report, waiting for it to settle.
@@ -219,17 +239,19 @@ async fn two_spans_may_share_a_name() {
 
     assert_ne!(first, second, "same name must not mean same span");
 
-    tokio::time::sleep(Duration::from_millis(300)).await;
-
     let long = settled.report(first).await;
     let short = settled.report(second).await;
 
     assert_eq!(long.span_name, "epoch");
     assert_eq!(short.span_name, "epoch");
-    assert!(
+    // Each is billed for its own duration, however long the sleeps took.
+    assert_eq!(
         long.total.energy.get() > short.total.energy.get(),
-        "the longer span must carry more energy: {:.4} J vs {:.4} J",
+        long.duration > short.duration,
+        "energy follows each span's own duration: {:?} {:.4} J, {:?} {:.4} J",
+        long.duration,
         long.total.energy.get(),
+        short.duration,
         short.total.energy.get()
     );
 }
@@ -344,8 +366,10 @@ async fn a_span_shorter_than_the_interval_warns_about_its_coverage() {
     // A long interval, so no watchdog read lands inside the span however
     // long a loaded machine stretches it.
     let config = TrackerConfig { readout_interval: Duration::from_secs(10), ..config() };
-    let tracker = start(pinned_sources(), config).expect("the config is valid");
-    let mut settled = Settled::on(&tracker);
+    let (tracker, events) = start_subscribed(pinned_sources(), config).expect("the config is valid");
+    let mut settled = Settled::from(events);
+    // Before the span, so the opening samples fall outside it.
+    settled.opened(2).await;
 
     // Far shorter than the interval.
     let span = tracker.start_span("blink", None, SourceSelection::All);
@@ -739,8 +763,10 @@ async fn a_cut_off_subscriber_may_subscribe_again_and_gets_no_replay() {
     let early = tracker.start_span("early", None, SourceSelection::All);
     tracker.mark(early, Work::default());
     tracker.mark(early, Work::default());
-    // Not read meanwhile, so the queue of one fills.
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // Answered after the marks, so their events are queued: the queue of one is full.
+    let (reply, answer) = oneshot::channel();
+    tracker.query(TrackerQuery::Catalog { reply });
+    answer.await.expect("answered").expect("a catalog");
     let ended = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             if let Err(ended) = first.recv().await {

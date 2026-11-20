@@ -391,12 +391,21 @@ mod tests {
     fn latest_is_none_until_a_fetch_finishes_and_a_later_failure_keeps_the_last_curve() {
         let calls = Arc::new(AtomicUsize::new(0));
         let counted = Arc::clone(&calls);
-        // Fails, then finds 250, then fails again.
-        let fetch: Fetch = Arc::new(move || (counted.fetch_add(1, Ordering::SeqCst) == 1).then(|| curve(250.0)));
+        let (release, gate) = mpsc::channel::<()>();
+        let gate = Mutex::new(gate);
+        // Fails once released, then finds 250, then fails again.
+        let fetch: Fetch = Arc::new(move || {
+            let call = counted.fetch_add(1, Ordering::SeqCst);
+            if call == 0 {
+                let _ = gate.lock().unwrap().recv();
+            }
+            (call == 1).then(|| curve(250.0))
+        });
         let forecaster = Forecaster::new(GridLocation::Global, Fidelity::Measured, Duration::from_secs(3600), "test", fetch)
             .with_timing(WAIT, Duration::ZERO);
 
         assert_eq!(forecaster.latest(), None, "before any fetch has finished");
+        release.send(()).unwrap();
         assert_eq!(settled(&forecaster, &calls, 1), Some(None), "no fetch has found a curve yet");
 
         forecaster.latest();
