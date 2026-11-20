@@ -14,6 +14,15 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Every symbol a specification anchors is exported, and every rule is cited
+  # by a test or marked why not.
+  specifications:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh docs/check-specifications.sh
+      - run: sh docs/check-conformance.sh
+
   rust:
     strategy:
       fail-fast: false
