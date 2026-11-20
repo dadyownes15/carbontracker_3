@@ -3,6 +3,7 @@
     from carbontracker import report
 
     found = report("logs/")
+    found = report(project="saintslab/codeq")   # every run of it on this machine
     found.total.energy_kwh
     print(found)                  # the runs table
     print(found.table(spans=True))
@@ -30,6 +31,10 @@ class Run:
     started: datetime
     frontend: str
     """``"cli"`` or ``"python"``."""
+    project: Optional[str]
+    """The project the run belongs to, e.g. ``"saintslab/codeq"``."""
+    name: Optional[str]
+    """The run's name, for people."""
     command: List[str]
     ended: Optional[str]
     """``"completed"``, ``"exited"``, ``"signalled"``, …; ``None`` if not recorded."""
@@ -101,10 +106,18 @@ class Report:
         return self.table()
 
 
-def report(*paths: Union[str, os.PathLike]) -> Report:
+def report(*paths: Union[str, os.PathLike], project: Optional[str] = None) -> Report:
     """The runs recorded in ``.ct`` files under ``paths``, folders searched
-    recursively. Raises ``FileNotFoundError`` for a path that is not there."""
-    raw = _native.report([os.fspath(path) for path in paths])
+    recursively. With ``project``, only the runs of that project and the
+    projects below it; with no paths, those linked from the project's folder
+    on this machine.
+
+    Raises:
+        FileNotFoundError: for a path that is not there, or a project with
+            no folder on this machine.
+        ValueError: for a project name that cannot be one.
+    """
+    raw = _native.report([os.fspath(path) for path in paths], project)
     runs = [
         Run(**{**run, "started": datetime.fromtimestamp(run["started"], tz=timezone.utc)}) for run in raw["runs"]
     ]

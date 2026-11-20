@@ -15,6 +15,8 @@ pub struct Report {
     pub unreadable: Vec<Unreadable>,
     spans: Vec<SpanGroup>,
     index: HashMap<String, usize>,
+    /// Keeps only this project's runs, and those of the projects below it.
+    project: Option<String>,
 }
 
 /// One run's record.
@@ -25,6 +27,10 @@ pub struct Run {
     pub started: DateTime<Utc>,
     pub frontend: String,
     pub command: Vec<String>,
+    /// The project the run belongs to.
+    pub project: Option<String>,
+    /// The run's name, for people.
+    pub name: Option<String>,
     /// The name of the first span opened with no parent: for the CLI, the
     /// command it tracked.
     pub first_root_span: Option<String>,
@@ -43,6 +49,11 @@ impl Run {
     pub fn is_complete(&self) -> bool {
         self.session.is_some()
     }
+}
+
+/// Whether a run of project `run` belongs to `project` or to a project below it.
+fn belongs(run: Option<&str>, project: &str) -> bool {
+    run.is_some_and(|run| run == project || run.strip_prefix(project).is_some_and(|rest| rest.starts_with('/')))
 }
 
 /// A file that could not be read, and why.
@@ -86,6 +97,12 @@ impl SpanGroup {
 }
 
 impl Report {
+    /// An empty report that keeps only the runs of `project` and the
+    /// projects below it, or every run.
+    pub fn only(project: Option<&str>) -> Report {
+        Report { project: project.map(str::to_owned), ..Report::default() }
+    }
+
     /// Adds the record read from `file`, or names it as unreadable.
     pub fn add(&mut self, file: &str, text: &str) {
         let records = match record::read(text) {
@@ -99,11 +116,18 @@ impl Report {
         let Some(record::Record { at: started, line: Line::Run(header) }) = lines.next() else {
             unreachable!("read checks for the header");
         };
+        if let Some(project) = &self.project
+            && !belongs(header.project.as_deref(), project)
+        {
+            return;
+        }
         let mut run = Run {
             file: file.to_owned(),
             started,
             frontend: header.frontend,
             command: header.command,
+            project: header.project,
+            name: header.name,
             first_root_span: None,
             outcome: None,
             session: None,

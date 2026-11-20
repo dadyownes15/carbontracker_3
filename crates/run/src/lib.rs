@@ -25,7 +25,7 @@ pub mod domain;
 mod ports;
 
 pub use adapters::{
-    Console, ConsoleSink, EPOCH, Folder, read_report, JsonlSink, LatestForecast, Predictor, Verbosity, prediction,
+    Console, ConsoleSink, EPOCH, Folder, check_project, project_folder, read_report, JsonlSink, LatestForecast, Predictor, Verbosity, prediction,
     standard_sinks,
 };
 pub use application::{RunConfig, RunError, RunHandle, VERSION, View, start};

@@ -60,6 +60,8 @@ fn config(sinks: Vec<Box<dyn Sink>>) -> RunConfig {
         probe: probe(),
         tracker: tracker(),
         frontend: "test",
+        project: None,
+        name: None,
         sinks,
     }
 }

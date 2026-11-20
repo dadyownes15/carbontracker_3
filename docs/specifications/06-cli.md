@@ -6,11 +6,11 @@ from reaching the engine or a provider any other way. The same binary ships
 with the Python package ([10](10-python.md)).
 
 ```
-carbontracker [OPTIONS] <COMMAND>...         track a whole command
+carbontracker [OPTIONS] [--project NAME] [--name TEXT] <COMMAND>...   track a whole command
 carbontracker check [OPTIONS]                show what would be measured
 carbontracker init                           save an API key (a menu on a terminal)
 carbontracker init slurm [SCRIPT]            run a Slurm script under carbontracker
-carbontracker report [--spans] [--csv [-o FILE]] <PATH>...   sum the runs recorded
+carbontracker report [--spans] [--csv [-o FILE]] [--project NAME] [PATH]...   sum the runs recorded
 ```
 
 ## Tracking a command
@@ -279,6 +279,8 @@ run, the script's argv. The table names the program by its file name; the CSV
 keeps it whole. The table's times are UTC, and its header says so. <!-- AC/FE-63 -->
 
 **A path that does not exist exits 2, naming it.** <!-- AC/FE-58 -->
+
+`--project` and `--name`, on a tracked command and on `report`, are [14](14-projects.md)'s.
 
 ## Why
 

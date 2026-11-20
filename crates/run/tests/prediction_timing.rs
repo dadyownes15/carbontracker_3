@@ -126,6 +126,8 @@ fn config(world: &World, out: &Shared) -> RunConfig {
         },
         tracker,
         frontend: "test",
+        project: None,
+        name: None,
         sinks: vec![Box::new(ConsoleSink::new(
             out.clone(),
             Verbosity::Normal,

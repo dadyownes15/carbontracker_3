@@ -3,13 +3,31 @@
 use std::path::{Path, PathBuf};
 
 use carbontracker_run::presentation::report;
-use carbontracker_run::read_report;
+use carbontracker_run::{check_project, project_folder, read_report};
 
 /// Print the runs table and the citation, or the spans table, to stdout; or
 /// save either as CSV to `output`, by default `runs.csv` or `spans.csv` in the
 /// folder the runs were read from. The saved path and what the CSV leaves out go to stderr.
-pub fn report(spans: bool, csv: bool, output: Option<PathBuf>, paths: &[PathBuf]) -> Result<i32, String> {
-    let read = read_report(paths).map_err(|error| error.to_string())?;
+/// With `project`, only its runs; with no paths, those linked from its folder.
+pub fn report(
+    spans: bool,
+    csv: bool,
+    output: Option<PathBuf>,
+    project: Option<&str>,
+    mut paths: Vec<PathBuf>,
+) -> Result<i32, String> {
+    if let Some(project) = project {
+        check_project(project)?;
+        if paths.is_empty() {
+            let folder = project_folder(project).ok_or("no home directory to find projects in")?;
+            if !folder.is_dir() {
+                return Err(format!("no runs of project {project} on this machine: {} is not there", folder.display()));
+            }
+            paths.push(folder);
+        }
+    }
+    let paths = &paths[..];
+    let read = read_report(paths, project).map_err(|error| error.to_string())?;
     match (spans, csv) {
         (false, false) => {
             println!("{}", report::runs(&read));

@@ -38,6 +38,7 @@ keyword-only. <!-- AC/PY-2 -->
 | `power`, `cpu_power`, `gpu_power` | A stated draw in watts | measured |
 | `intensity` | A fixed grid intensity in gCO2eq/kWh | fetched |
 | `pue` | Power usage effectiveness | 1.58 |
+| `project`, `name` | The run's project and name ([14](14-projects.md)) | none |
 
 **Every invalid or conflicting argument raises `ValueError` before anything is
 probed or started, whatever `ignore_errors` says.** Refused: two locations; a
@@ -255,7 +256,7 @@ together never share one. <!-- AC/PY-35 -->
 
 ## Reading runs back
 
-**`report(*paths)` returns the `Report` that `carbontracker report` prints**:
+**`report(*paths, project=None)` returns the `Report` that `carbontracker report` prints**:
 its `runs`, `spans`, `total`, `incomplete` and `unreadable`, by the same rules
 as [06](06-cli.md). <!-- AC/PY-38 -->
 

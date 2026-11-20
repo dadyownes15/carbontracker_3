@@ -106,6 +106,14 @@ class CarbonTracker:
             network.
         pue: new in 3.0.0. Power usage effectiveness; 2.4.7's 1.58 by default,
             1 in profiler mode.
+        project: new in 3.0.0. The project the run belongs to: parts of
+            letters, digits, ``.``, ``_`` and ``-`` joined by ``/``, e.g.
+            ``"saintslab/codeq"``. Written into the record; a run with a
+            ``log_dir`` is linked from the project's folder on this machine,
+            so ``carbontracker report --project saintslab/codeq`` finds it.
+        name: new in 3.0.0. The run's name, for people: written into the
+            record and shown by ``carbontracker report`` instead of the
+            command.
         mode: new in 3.0.0. ``"tracker"``, or ``"profiler"`` for short spans
             that run in order: electricity only, each span isolated by waiting
             for reads and subtracting the idle draw.
@@ -156,6 +164,8 @@ class CarbonTracker:
         gpu_power: Optional[float] = None,
         intensity: Optional[float] = None,
         pue: Optional[float] = None,
+        project: Optional[str] = None,
+        name: Optional[str] = None,
         mode: str = "tracker",
         sync_streams: Optional[bool] = None,
         wait: Optional[bool] = None,
@@ -165,10 +175,16 @@ class CarbonTracker:
         baseline_s: Optional[float] = None,
         **removed,
     ):
-        for name in removed:
-            if name in REMOVED:
-                raise TypeError(f"{name} was removed in carbontracker 3: {REMOVED[name]}")
-            raise TypeError(f"CarbonTracker() got an unexpected keyword argument {name!r}")
+        for argument in removed:
+            if argument in REMOVED:
+                raise TypeError(f"{argument} was removed in carbontracker 3: {REMOVED[argument]}")
+            raise TypeError(f"CarbonTracker() got an unexpected keyword argument {argument!r}")
+        if project is not None and not isinstance(project, str):
+            raise ValueError(f"project must be a string such as 'saintslab/codeq', got {project!r}")
+        if name is not None and not (
+            isinstance(name, str) and name.strip() and all(ch.isprintable() or ch == " " for ch in name)
+        ):
+            raise ValueError(f"name must be text with no control characters, got {name!r}")
         if stop_and_confirm:
             raise TypeError(f"stop_and_confirm was removed in carbontracker 3: {REMOVED['stop_and_confirm']}")
         measuring = dict(
@@ -179,9 +195,9 @@ class CarbonTracker:
             raise ValueError(f"mode must be 'tracker' or 'profiler', got {mode!r}")
         self._profiling: Optional[_profiler.Settings] = None
         if mode == "tracker":
-            for name, value in measuring.items():
+            for setting, value in measuring.items():
                 if value is not None:
-                    raise ValueError(f"{name} is a profiler setting: give it with mode='profiler'")
+                    raise ValueError(f"{setting} is a profiler setting: give it with mode='profiler'")
         else:
             given = dict(
                 epochs=epochs is not None, epochs_before_pred=epochs_before_pred != 1,
@@ -224,6 +240,8 @@ class CarbonTracker:
         self.devices_by_pid = devices_by_pid
         self.log_dir = log_dir
         self.log_file_prefix = log_file_prefix
+        self.project = project
+        self.name = name
         self.verbose = verbose
         self.decimal_precision = decimal_precision
         self.api_keys = api_keys
@@ -367,6 +385,8 @@ class CarbonTracker:
             devices_by_pid=self.devices_by_pid,
             log_dir=os.fspath(self.log_dir) if self.log_dir is not None else None,
             log_file_prefix=self.log_file_prefix,
+            project=self.project,
+            name=self.name,
             epochs=self.epochs,
             epochs_before_pred=self.epochs_before_pred,
             monitor_epochs=max(self.monitor_epochs, 0),
@@ -376,8 +396,7 @@ class CarbonTracker:
             profiler=self._profiling is not None,
             write=_writer(),
         )
-        warning = native.config_warning()
-        if warning is not None:
+        for warning in native.warnings():
             print(f"{_native.PREFIX}{warning}", file=sys.stderr, flush=True)
         return native
 
