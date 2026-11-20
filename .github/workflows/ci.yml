@@ -38,6 +38,8 @@ jobs:
       - run: cargo test --workspace
         env:
           PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
+      # Counterexamples QuickCheck found, replayed without GHC.
+      - run: cargo test -p carbontracker --features replay --test replay_cases
 
   python:
     # Tests the built wheel, not an editable install, so packaging is covered too.
@@ -61,26 +63,3 @@ jobs:
       # From inside tests/ so the installed package is imported, not the source tree.
       - run: pytest -q
         working-directory: crates/python/tests
-
-  quickcheck:
-    # Generated programs replayed through the session and the engine with no
-    # threads and no clock: the same result on any runner.
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: haskell-actions/setup@v2
-        id: haskell
-        with:
-          ghc-version: "9.10"
-          cabal-version: "3.12"
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.haskell.outputs.cabal-store }}
-          key: cabal-${{ runner.os }}-${{ steps.haskell.outputs.ghc-version }}-${{ hashFiles('quickcheck/quickcheck.cabal') }}
-      - run: cargo build -p carbontracker --features replay --bins
-      - run: cabal update && cabal test -v0 --test-show-details=direct
-        working-directory: quickcheck
-        env:
-          QUICKCHECK_CASES: "100"

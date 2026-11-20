@@ -146,6 +146,12 @@ expected values come from the program, the world and the trace. <!-- AC/TST-34 -
 the replay reads**, so it can be run again by hand. GHC may be absent:
 the suite then reports itself skipped, never passed. <!-- AC/TST-35 -->
 
+**A counterexample that found a defect is kept.** Its JSON goes to
+`crates/engine/tests/replay-cases/`, with a test in `replay_cases.rs`
+stating the rule it broke, and CI replays it on every run with no GHC.
+The generated suite runs when the engine or the suite changes, and
+nightly; when it fails, CI keeps its counterexamples. <!-- AC/TST-37 -->
+
 ## Generators and oracles
 
 **A generator produces realistic input; an oracle says what the answer should
