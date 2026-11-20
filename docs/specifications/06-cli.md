@@ -167,8 +167,9 @@ stated. <!-- AC/FE-52 -->
 
 **A key whose provider declined is warned about** below the rows, and below
 the lines of the full-screen view with or without `-v`, naming the key by its
-hint, giving the reason the provider declined, and pointing to
-`carbontracker init`. <!-- AC/FE-61 -->
+hint and giving the reason the provider declined. It points to
+`carbontracker init` only when the key was refused; when the service could
+not be reached or asked, a new key would not help, so it does not. <!-- AC/FE-61 -->
 
 **`check -v` adds every candidate's verdict** (serving, or why not) after the
 rows. <!-- AC/FE-60 -->

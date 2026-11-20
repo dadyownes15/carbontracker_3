@@ -368,9 +368,11 @@ impl Live {
     /// The view as plain text, for after it closes.
     pub fn snapshot(&self, verbose: bool) -> String {
         let mut out = format!("{}\n", self.headline());
-        for line in self.lines() {
+        let lines = self.lines();
+        let width = value_width(&lines);
+        for line in lines {
             let how = line.how.map_or("", How::word);
-            out.push_str(&format!("  {:<10} {:<20} {:<9} {}\n", line.label, line.value, how, line.by));
+            out.push_str(&format!("  {:<10} {:<width$} {:<9} {}\n", line.label, line.value, how, line.by));
             if let Some(failure) = &line.failure {
                 out.push_str(&format!("  {:<10} ! failed: {failure}\n", ""));
             }
@@ -391,6 +393,11 @@ impl Live {
         }
         out
     }
+}
+
+/// The value column's width: the longest value, and never under 20.
+pub fn value_width(lines: &[KindLine]) -> usize {
+    lines.iter().map(|line| line.value.chars().count()).max().unwrap_or(0).max(20)
 }
 
 /// `value`, marked stale when its source's last read failed.
@@ -592,7 +599,7 @@ pub(crate) mod tests {
     #[test]
     fn a_key_whose_provider_declined_is_warned_about_with_its_reason() {
         let mut live = Live::new(1.0).with_keys(vec![em_key()]);
-        live.apply(Msg::Decided("electricity-maps", Verdict::Declined("zone DK-DK2: access denied".into())));
+        live.apply(Msg::Decided("electricity-maps", Verdict::Declined("zone DK-DK2: access denied: Electricity Maps refused the key (401 Unauthorized)".into())));
         let [warning] = live.warnings().try_into().unwrap();
         assert!(warning.starts_with("! electricity_maps key …1234 found, but electricity-maps is unavailable"), "{warning}");
         assert!(warning.contains("zone DK-DK2: access denied"), "{warning}");
@@ -639,6 +646,21 @@ pub(crate) mod tests {
         assert_eq!(power.value, "…");
         assert_eq!(power.failure.as_deref(), Some("nvml: the read timed out"));
         assert!(live.headline().contains("nvml: the read timed out"), "{}", live.headline());
+    }
+
+    #[test]
+    fn a_stale_value_keeps_the_columns_aligned() {
+        let mut live = probed();
+        live.apply(readout(&[(1, 0, 1000.0), (2, 0, 150.0), (3, 0, 200.0)]));
+        live.apply(readout(&[(1, 2, 1100.0)]));
+        live.apply(failed(3));
+        let plain = live.snapshot(false);
+        let column = |label: &str| {
+            let line = plain.lines().find(|line| line.trim_start().starts_with(label)).unwrap();
+            line.find(" live ").or_else(|| line.find(" modelled ")).expect(line)
+        };
+        assert_eq!(column("power"), column("intensity"), "{plain}");
+        assert_eq!(column("power"), column("forecast"), "{plain}");
     }
 
     #[test]

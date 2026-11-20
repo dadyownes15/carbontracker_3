@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Paragraph, Row, Table, TableState, Wrap};
 use ratatui::Frame;
 
-use super::live::{Live, Status};
+use super::live::{Live, Status, value_width};
 use super::run::Feed;
 use super::{SPINNER, dim};
 use crate::commands::How;
@@ -66,6 +66,7 @@ impl CheckView {
 
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, tick: usize) {
         let kinds = self.live.lines();
+        let width = value_width(&kinds);
         let mut lines = vec![self.headline(tick), Line::from("")];
         for line in &kinds {
             let mut spans = vec![Span::styled(format!("{:<10}", line.label), dim())];
@@ -78,7 +79,7 @@ impl CheckView {
                     spans.push(Span::styled(format!(" · {}", line.by), dim()));
                 }
                 value => {
-                    spans.push(Span::styled(format!("{value:<20} "), Style::new().add_modifier(Modifier::BOLD)));
+                    spans.push(Span::styled(format!("{value:<width$} "), Style::new().add_modifier(Modifier::BOLD)));
                     if let Some(how) = line.how {
                         spans.push(Span::styled(format!("{:<9}", how.word()), Style::new().fg(colour(how))));
                     }
@@ -250,17 +251,21 @@ pub(crate) mod tests {
         let mut view = CheckView::new(Live::new(1.0).with_keys(vec![em_key()]), Feed::fake(rx), false);
         feed(&tx);
         // The key's candidate declined; a fallback serves instead.
-        tx.send(Msg::Decided("electricity-maps", Verdict::Declined("zone DK-DK2: access denied".into()))).unwrap();
-        tx.send(Msg::Readout(std::sync::Arc::new(std::collections::HashMap::from([(
-            carbontracker::SourceId::new(carbontracker::ProviderId(2), 0),
-            carbontracker::Observation::Failed(carbontracker::Failure::TimedOut),
-        )]))))
-        .unwrap();
+        tx.send(Msg::Decided("electricity-maps", Verdict::Declined("zone DK-DK2: access denied: Electricity Maps refused the key (401 Unauthorized)".into()))).unwrap();
+        let failed = |provider| {
+            (
+                carbontracker::SourceId::new(carbontracker::ProviderId(provider), 0),
+                carbontracker::Observation::Failed(carbontracker::Failure::TimedOut),
+            )
+        };
+        tx.send(Msg::Readout(std::sync::Arc::new(std::collections::HashMap::from([failed(2), failed(3)])))).unwrap();
         let screen = draw(&mut view);
         assert!(screen.contains("electricity-maps is unavailable: zone DK-DK2: access denied"), "{screen}");
         assert!(screen.contains("carbontracker init"), "{screen}");
         assert!(screen.contains("nvml: the read timed out"), "{screen}");
         assert!(screen.contains("(stale)"), "{screen}");
+        let column = |label: &str| screen.lines().find(|line| line.starts_with(label)).unwrap().find(" live ");
+        assert_eq!(column("power"), column("intensity"), "the stale value keeps the columns aligned: {screen}");
     }
 
     /// AC/FE-80
