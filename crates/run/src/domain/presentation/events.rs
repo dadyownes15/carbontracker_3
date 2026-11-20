@@ -42,10 +42,10 @@ pub fn figure(description: Option<&SourceDescription>, samples: &[Sample]) -> Op
     })
 }
 
-/// A settled span's line, followed by its warnings.
-pub fn settled(report: &SpanReport) -> Vec<String> {
+/// A settled span's line.
+pub fn settled(report: &SpanReport) -> String {
     let usage = report.total;
-    let mut lines = vec![format!(
+    format!(
         "{} settled: {}, {} kWh, {}",
         report.span_name,
         clock(report.duration),
@@ -54,12 +54,5 @@ pub fn settled(report: &SpanReport) -> Vec<String> {
             || "CO2eq unknown".to_owned(),
             |grams| format!("{} gCO2eq", significant(grams.get()))
         ),
-    )];
-    lines.extend(
-        report
-            .warnings
-            .iter()
-            .map(|warning| format!("  {}: {warning}", report.span_name)),
-    );
-    lines
+    )
 }

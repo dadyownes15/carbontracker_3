@@ -310,9 +310,9 @@ impl Sink for Failing {
     }
 }
 
-/// AC/RUN-9, AC/RUN-14
+/// AC/RUN-9, AC/RUN-14, AC/OUT-13, AC/OUT-24
 #[test]
-fn a_failing_sink_is_named_after_the_summary_and_the_others_go_on() {
+fn a_failing_sink_is_named_before_the_summary_and_the_others_go_on() {
     let out = Shared::default();
     let mut sinks = vec![Box::new(Failing) as Box<dyn Sink>];
     sinks.extend(standard_sinks(console(&out, Verbosity::Normal), None).unwrap());
@@ -323,7 +323,7 @@ fn a_failing_sink_is_named_after_the_summary_and_the_others_go_on() {
     let warning = console
         .find("the failing sink failed and stopped: disk full")
         .expect("the warning");
-    assert!(summary < warning, "{console}");
+    assert!(warning < summary, "{console}");
 }
 
 /// AC/RUN-9
@@ -726,16 +726,11 @@ fn a_sink_that_errs_is_finished_once_and_dropped_while_the_others_go_on() {
 
     assert_eq!(*failing.calls_after.lock().unwrap(), 0, "nothing after its error");
     assert_eq!(*failing.finishes.lock().unwrap(), 1);
+    // Named right after the event it failed on.
     let seen = other.seen();
-    assert_eq!(
-        seen[seen.len() - 4..],
-        [
-            "outcome Exited { code: 0 }".to_owned(),
-            "session".to_owned(),
-            "warning the counting sink failed and stopped: disk full".to_owned(),
-            "finish".to_owned()
-        ]
-    );
+    let first_event = seen.iter().position(|item| item == "started").unwrap() + 1;
+    assert_eq!(seen[first_event + 1], "warning the counting sink failed and stopped: disk full", "{seen:?}");
+    assert_eq!(seen[seen.len() - 3..], ["outcome Exited { code: 0 }", "session", "finish"]);
 }
 
 /// Counts the items it sees, sums the settled spans' energy, and notes the
@@ -979,7 +974,7 @@ fn a_world_average_nobody_asked_for_says_why() {
     assert!(!asked.contains("WARNING - the world-average grid"), "{asked}");
 }
 
-/// AC/OUT-22, AC/OUT-32
+/// AC/OUT-13, AC/OUT-22, AC/OUT-32
 #[test]
 fn a_modelled_source_nobody_asked_for_is_a_warning_at_start() {
     let (out, everything) = (Shared::default(), Shared::default());

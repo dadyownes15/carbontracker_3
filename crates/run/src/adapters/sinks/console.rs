@@ -1,6 +1,6 @@
 //! [ConsoleSink]: a run for people, on a terminal or in `output.log`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 
 use carbontracker::{
@@ -33,6 +33,8 @@ pub struct ConsoleSink {
     served_by: HashMap<SourceId, &'static str>,
     /// Whether the user asked for the world-average grid.
     global: bool,
+    /// The span warnings printed so far, each printed once per run.
+    span_warnings: HashSet<String>,
 }
 
 impl ConsoleSink {
@@ -51,6 +53,7 @@ impl ConsoleSink {
             monitor: None,
             now: Box::new(|| chrono::Local::now().format("%H:%M:%S").to_string()),
             spans: HashMap::new(),
+            span_warnings: HashSet::new(),
             sources: HashMap::new(),
             served_by: HashMap::new(),
             global: false,
@@ -248,8 +251,14 @@ impl Sink for ConsoleSink {
             }
             TrackerEvent::SpanSettled { report } => {
                 if everything {
-                    for line in events::settled(report) {
-                        self.log(&line)?;
+                    self.log(&events::settled(report))?;
+                }
+                let warnings: Vec<_> =
+                    report.warnings.iter().filter_map(|warning| self.without_asked(warning)).collect();
+                for warning in warnings {
+                    let text = presentation::span_warning(&report.span_name, &warning.to_string());
+                    if self.span_warnings.insert(text.clone()) {
+                        self.warning(&text)?;
                     }
                 }
                 self.spans.remove(&report.span_id);
@@ -301,11 +310,13 @@ impl Sink for ConsoleSink {
     }
 
     fn block(&mut self, block: &dyn Block) -> io::Result<()> {
-        if !self.normal() {
-            return Ok(());
+        if self.normal() {
+            for line in block.lines(&self.layout) {
+                writeln!(self.out, "{line}")?;
+            }
         }
-        for line in block.lines(&self.layout) {
-            writeln!(self.out, "{line}")?;
+        for warning in block.warnings() {
+            self.warning(&warning)?;
         }
         Ok(())
     }

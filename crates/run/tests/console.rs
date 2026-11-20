@@ -10,9 +10,9 @@ use std::time::Duration;
 use carbontracker::{
     CatalogReport, Failure, Fidelity, GridLocation, Joules, Observation, PowerDomain, PowerScope, ProviderError,
     ProviderId, ReadoutId, ReportWarning, Sample, SampleKind, SessionReport, Skip, SourceDescription, SourceId,
-    SourceSelection, SpanId, Timestamp, TrackerError, TrackerEvent, Usage, Work,
+    SourceSelection, SpanId, SpanReport, Timestamp, TrackerError, TrackerEvent, Usage, Work,
 };
-use carbontracker_run::{ConsoleSink, Item, Layout, Started, Verbosity, deliver, record};
+use carbontracker_run::{Block, ConsoleSink, Item, Layout, Started, Verbosity, deliver, record};
 use common::Shared;
 
 const VERBOSITIES: [Verbosity; 3] = [Verbosity::Quiet, Verbosity::Normal, Verbosity::Everything];
@@ -196,7 +196,7 @@ fn ended(warnings: Vec<ReportWarning>) -> Item {
     })
 }
 
-/// AC/OUT-21, AC/OUT-32
+/// AC/OUT-21, AC/OUT-35
 #[test]
 fn an_estimate_leaves_out_the_world_average_only_when_it_was_asked_for() {
     let estimated = || {
@@ -214,4 +214,94 @@ fn an_estimate_leaves_out_the_world_average_only_when_it_was_asked_for() {
     assert_eq!(printed(None), format!("{prefix}Intel Xeon (cpu) modelled, assumed world-average grid\n"));
     let global = Some(record::Location::Stated(record::Grid::Global));
     assert_eq!(printed(global), format!("{prefix}Intel Xeon (cpu) modelled\n"));
+}
+
+/// The span `epoch` settled with `warnings`.
+fn settled(warnings: Vec<ReportWarning>) -> Item {
+    settled_as("epoch", warnings)
+}
+
+/// The span `name` settled with `warnings`.
+fn settled_as(name: &str, warnings: Vec<ReportWarning>) -> Item {
+    let none = Usage { energy: Joules::new(0.0).unwrap(), emissions: None };
+    Item::Event(TrackerEvent::SpanSettled {
+        report: Arc::new(SpanReport {
+            span_id: SpanId::new(1),
+            span_name: name.to_owned(),
+            per_source: HashMap::new(),
+            sources: HashMap::new(),
+            total: none,
+            exclusive: none,
+            intensities: HashMap::new(),
+            duration: Duration::from_secs(1),
+            samples: HashMap::new(),
+            warnings,
+            selection: SourceSelection::All,
+        }),
+    })
+}
+
+/// AC/OUT-11, AC/OUT-12, AC/OUT-33
+#[test]
+fn a_span_reports_warning_names_the_span_at_every_verbosity() {
+    let thin = ReportWarning::ThinCoverage { samples: 0, sources: vec!["NVIDIA A100 (gpu)".to_owned()] };
+    let expected = format!("CarbonTracker: WARNING - epoch: {thin}");
+    for verbosity in VERBOSITIES {
+        let (mut sink, out) = console(verbosity);
+        deliver(&mut sink, &started()).unwrap();
+        deliver(&mut sink, &settled(vec![thin.clone()])).unwrap();
+        let text = out.text();
+        assert_eq!(warnings(&text), [expected.as_str()], "{verbosity:?}: {text}");
+    }
+}
+
+/// AC/OUT-36
+#[test]
+fn a_span_reports_warning_prints_once_per_run() {
+    let thin = ReportWarning::ThinCoverage { samples: 0, sources: vec!["NVIDIA A100 (gpu)".to_owned()] };
+    let (mut sink, out) = console(Verbosity::Quiet);
+    deliver(&mut sink, &started()).unwrap();
+    for name in ["epoch", "epoch", "epoch", "eval"] {
+        deliver(&mut sink, &settled_as(name, vec![thin.clone()])).unwrap();
+    }
+    assert_eq!(
+        out.text(),
+        format!("CarbonTracker: WARNING - epoch: {thin}\nCarbonTracker: WARNING - eval: {thin}\n")
+    );
+}
+
+/// AC/OUT-35
+#[test]
+fn a_span_reports_estimate_leaves_out_an_asked_for_world_average() {
+    let estimated = ReportWarning::Estimated { sources: vec!["assumed world-average grid".to_owned()] };
+    let (mut sink, out) = console(Verbosity::Quiet);
+    deliver(&mut sink, &started_on(Some(record::Location::Stated(record::Grid::Global)))).unwrap();
+    deliver(&mut sink, &settled(vec![estimated])).unwrap();
+    assert_eq!(out.text(), "");
+}
+
+/// A block with one line and one warning.
+#[derive(Debug)]
+struct Warned;
+
+impl Block for Warned {
+    fn lines(&self, _: &Layout) -> Vec<String> {
+        vec!["a block".to_owned()]
+    }
+    fn warnings(&self) -> Vec<String> {
+        vec!["the block rests on one epoch".to_owned()]
+    }
+}
+
+/// AC/OUT-28, AC/OUT-34
+#[test]
+fn a_blocks_warnings_print_without_the_block_at_quiet() {
+    for verbosity in VERBOSITIES {
+        let (mut sink, out) = console(verbosity);
+        deliver(&mut sink, &started()).unwrap();
+        deliver(&mut sink, &Item::Block(Arc::new(Warned))).unwrap();
+        let text = out.text();
+        assert_eq!(warnings(&text), ["CarbonTracker: WARNING - the block rests on one epoch"], "{verbosity:?}: {text}");
+        assert_eq!(text.contains("a block"), verbosity != Verbosity::Quiet, "{verbosity:?}: {text}");
+    }
 }

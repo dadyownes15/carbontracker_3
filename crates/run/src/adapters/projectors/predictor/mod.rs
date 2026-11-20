@@ -194,8 +194,8 @@ impl Projection for Predictor {
     }
 }
 
-/// carbontracker 2.4.7's "Predicted consumption" block, then a note per
-/// warning.
+/// carbontracker 2.4.7's "Predicted consumption" block, with the
+/// prediction's warnings.
 #[derive(Debug)]
 struct Predicted {
     epochs: usize,
@@ -233,14 +233,11 @@ impl Block for Predicted {
                 presentation::consumption(&title, self.prediction.duration, usage, layout, true)
             }
         };
-        let mut lines = vec![format!("{PREFIX}\n{block}")];
-        lines.extend(
-            self.prediction
-                .warnings
-                .iter()
-                .map(|warning| format!("{PREFIX}{}", presentation::note(&warning.to_string()))),
-        );
-        lines
+        vec![format!("{PREFIX}\n{block}")]
+    }
+
+    fn warnings(&self) -> Vec<String> {
+        self.prediction.warnings.iter().map(ToString::to_string).collect()
     }
 }
 

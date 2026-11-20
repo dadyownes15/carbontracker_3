@@ -34,7 +34,6 @@ impl WriterHandle {
         let actor = WriterActor {
             receiver,
             sinks,
-            warnings: Vec::new(),
         };
         thread::Builder::new()
             .name("carbontracker-writer".to_owned())
@@ -69,13 +68,13 @@ impl WriterHandle {
 struct WriterActor {
     receiver: mpsc::Receiver<WriterMessage>,
     sinks: Vec<Box<dyn Sink>>,
-    warnings: Vec<String>,
 }
 
 impl WriterActor {
     /// Hands `item` to every sink. A sink that fails is finished, dropped and
-    /// named in a warning.
+    /// named in a warning to the others once they have `item`.
     fn hand(&mut self, item: &Item) {
+        let mut failed = Vec::new();
         let mut index = 0;
         while index < self.sinks.len() {
             match deliver(self.sinks[index].as_mut(), item) {
@@ -84,18 +83,17 @@ impl WriterActor {
                     let mut sink = self.sinks.remove(index);
                     // It may hold a partial file worth flushing.
                     let _ = sink.finish();
-                    self.warnings
-                        .push(presentation::sink_failed(sink.name(), &error));
+                    failed.push(presentation::sink_failed(sink.name(), &error));
                 }
             }
         }
-    }
-
-    /// Tells the sinks left which ones failed, then finishes them all.
-    fn finish(&mut self) {
-        for warning in std::mem::take(&mut self.warnings) {
+        for warning in failed {
             self.hand(&Item::Warning(warning));
         }
+    }
+
+    /// Finishes every sink.
+    fn finish(&mut self) {
         for mut sink in self.sinks.drain(..) {
             if let Err(error) = sink.finish() {
                 // No sink is left to tell.

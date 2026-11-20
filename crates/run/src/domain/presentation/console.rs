@@ -330,6 +330,11 @@ pub fn refused(span: &str, error: &str) -> String {
     format!("a command on {span} was refused: {error}")
 }
 
+/// A span report's warning, naming the span.
+pub fn span_warning(span: &str, warning: &str) -> String {
+    format!("{span}: {warning}")
+}
+
 /// Formats a note.
 pub fn note(text: &str) -> String {
     format!("note: {text}")
