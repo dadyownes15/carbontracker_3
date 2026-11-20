@@ -91,12 +91,24 @@ impl Reader {
     }
 }
 
+/// What happened to a request, for the stateful replay.
+#[cfg(feature = "replay")]
+#[derive(Debug, Clone)]
+pub(crate) enum Logged {
+    Sent { request: RequestId, provider: ProviderId, watchdog: bool },
+    Started { request: RequestId },
+    /// `answer` is `read`, `unchanged`, `skipped`, `failed` or `done`.
+    Answered { request: RequestId, answer: &'static str, failure: Option<String> },
+}
+
 /// Every provider a tracker reads.
 pub(crate) struct Readers {
     readers: HashMap<ProviderId, Reader>,
     /// How long the watchdog leaves a provider unasked, at least.
     interval: Duration,
     next_request: usize,
+    #[cfg(feature = "replay")]
+    log: Vec<Logged>,
 }
 
 impl Readers {
@@ -109,12 +121,12 @@ impl Readers {
             let provider = reader.provider.take().expect("a new reader holds its provider");
             reader.worker = spawn_worker(id, provider, sender.clone());
         }
-        (Self { readers, interval, next_request: 1 }, returns)
+        (Self::over(readers, interval), returns)
     }
 
     /// Readers whose jobs go to the returned channels rather than to worker
     /// threads: nothing is read, and the caller hands back each result.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "replay"))]
     pub(crate) fn detached(
         readers: HashMap<ProviderId, Reader>,
         interval: Duration,
@@ -127,7 +139,23 @@ impl Readers {
             reader.worker = Some(sender);
             jobs.insert(id, receiver);
         }
-        (Self { readers, interval, next_request: 1 }, jobs)
+        (Self::over(readers, interval), jobs)
+    }
+
+    fn over(readers: HashMap<ProviderId, Reader>, interval: Duration) -> Self {
+        Self {
+            readers,
+            interval,
+            next_request: 1,
+            #[cfg(feature = "replay")]
+            log: Vec::new(),
+        }
+    }
+
+    /// What happened to requests since last asked.
+    #[cfg(feature = "replay")]
+    pub(crate) fn take_log(&mut self) -> Vec<Logged> {
+        std::mem::take(&mut self.log)
     }
 
     /// Every provider, in id order.
@@ -252,6 +280,9 @@ impl Readers {
         let interval = self.interval;
         let reader = self.readers.get_mut(&provider).expect("only a known provider is asked");
         reader.askers.insert(request, asker);
+        #[cfg(feature = "replay")]
+        self.log.push(Logged::Sent { request, provider, watchdog: asker == Asker::Watchdog });
+        let reader = self.readers.get_mut(&provider).expect("only a known provider is asked");
         reader.watchdog_at = Some(now + reader.watchdog_period(interval));
         reader.watchdog_due = false;
         let effects = reader.gate.request(request, asker, now);
@@ -264,6 +295,8 @@ impl Readers {
         for effect in effects {
             match effect {
                 Effect::Start(request) => {
+                    #[cfg(feature = "replay")]
+                    self.log.push(Logged::Started { request });
                     let asks = &mut self.readers.get_mut(&provider).expect("known").asks;
                     asks.transition();
                     asks.started(request, wall);
@@ -285,6 +318,8 @@ impl Readers {
                     if matches!(answer, Answer::Done | Answer::Failed(Failure::Panicked(_) | Failure::Retired)) {
                         reader.watchdog_at = None;
                     }
+                    #[cfg(feature = "replay")]
+                    let logged = logged_answer(request, &answer);
                     let observations: Vec<(SourceId, Observation)> = match answer {
                         Answer::Read(observations) => observations,
                         Answer::Skipped(skip) => {
@@ -298,6 +333,8 @@ impl Readers {
                         Answer::Done => Vec::new(),
                     };
                     landed.push(response_of(request, observations));
+                    #[cfg(feature = "replay")]
+                    self.log.push(logged);
                 }
             }
         }
@@ -353,6 +390,30 @@ fn spawn_worker(
         return None;
     }
     Some(jobs)
+}
+
+/// How `request` was answered, for the stateful replay.
+#[cfg(feature = "replay")]
+fn logged_answer(request: RequestId, answer: &Answer<Vec<(SourceId, Observation)>>) -> Logged {
+    let (answer, failure) = match answer {
+        Answer::Read(observations) => {
+            let failed = observations.iter().find_map(|(_, observation)| match observation {
+                Observation::Failed(failure) => Some(failure.to_string()),
+                _ => None,
+            });
+            if observations.iter().any(|(_, observation)| matches!(observation, Observation::Samples(_))) {
+                ("read", None)
+            } else if failed.is_some() {
+                ("failed", failed)
+            } else {
+                ("unchanged", None)
+            }
+        }
+        Answer::Skipped(_) => ("skipped", None),
+        Answer::Failed(failure) => ("failed", Some(failure.to_string())),
+        Answer::Done => ("done", None),
+    };
+    Logged::Answered { request, answer, failure }
 }
 
 /// A readout for `request` carrying `observations`.

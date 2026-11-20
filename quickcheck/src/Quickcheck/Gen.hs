@@ -2,7 +2,7 @@
 -- | Realistic input: hosts with RAPL-, NVML- and grid-like providers, worlds
 -- of piecewise-linear truth, and caller programs shaped like real use.
 module Quickcheck.Gen
-  ( genScenario, genCleanScenario, genJaggedScenario, genConstantScenario
+  ( genScenario, genCleanScenario, genJaggedScenario, genConstantScenario, genStalledScenario
   , genProviders, genProgram, shapes, Failures (..)
   ) where
 
@@ -362,14 +362,18 @@ genProgram ps = frequency
       pure (Idle lead : concat parts)) ]
 
 assemble :: Failures -> Bool -> ([Provider] -> Gen Plan) -> Gen Scenario
-assemble f constant genPlan = do
-  ps <- genProviders f
+assemble f = assembleWith (genProviders f)
+
+-- | [assemble] over hosts from `genHost`.
+assembleWith :: Gen [Provider] -> Bool -> ([Provider] -> Gen Plan) -> Gen Scenario
+assembleWith genHost constant genPlan = do
+  ps <- genHost
   pairs <- genPairs ps
   plan <- genPlan ps
   let horizon = maybe 0 opAt (lastMaybe (scheduled plan))
   truth <- genTruth constant ps horizon
   pue <- elements [1.0, 1.2, 1.58]
-  pure (Scenario pue sec timeoutUs ps pairs truth plan)
+  pure (Scenario pue sec timeoutUs ps pairs truth plan [])
   where lastMaybe xs = if null xs then Nothing else Just (last xs)
 
 -- | Any realistic scenario, failures included.
@@ -385,6 +389,35 @@ genCleanScenario = assemble NoFailures True genProgram
 genJaggedScenario :: Gen Scenario
 genJaggedScenario = assemble WithFailures False (jagged . map fst . powerSources)
 
+-- | Any realistic scenario on a busy host: now and then the engine thread
+-- gets no time, from a few ms to longer than the timeout. A stall often
+-- begins just as reads go out, at the opening or a cut, so a read returns
+-- while the engine is stalled and its deadline passes before the engine
+-- runs again.
+genStalledScenario :: Gen Scenario
+genStalledScenario = do
+  s <- genScenario
+  let ops = scheduled (scPlan s)
+      horizon = if null ops then 0 else opAt (last ops)
+      cuts = 0 : [opAt o | o <- ops]
+  n <- frequency [(1, pure 0), (4, choose (1, 8))]
+  starts <- replicateM n $ frequency
+    [ (3, (+) <$> elements cuts <*> choose (0, ms)) -- just after reads go out
+    , (1, choose (0, horizon)) ]
+  stalls <- forM (sort starts) $ \from -> do
+    d <- frequency [(2, choose (ms, 50 * ms)), (2, choose (50 * ms, sec)), (3, choose (timeoutUs, 3 * timeoutUs))]
+    pure (from, from + d)
+  pure s { scStalls = stalls }
+
 -- | Failures and all, but every curve flat: each source's energy is known.
+-- Every host also has a power meter that always answers, such as NVML
+-- reading a GPU's power, so some source's energy is checked exactly.
 genConstantScenario :: Gen Scenario
-genConstantScenario = assemble WithFailures True genProgram
+genConstantScenario = assembleWith (genProviders WithFailures >>= withMeter) True genProgram
+
+-- | `ps` and a GPU power meter that always answers, under `Queue`.
+withMeter :: [Provider] -> Gen [Provider]
+withMeter ps = do
+  let i = 1 + maximum (0 : map provId ps)
+  reads <- plainReads
+  pure (ps ++ [Provider i (Just (100 * ms)) Queue reads [PowerSource 0 Gpu Instant]])

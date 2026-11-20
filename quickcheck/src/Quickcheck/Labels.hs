@@ -14,7 +14,7 @@ data Label
   = Timeout | LateReturn | Panic | NeverDone | QueuedRelied | Row4Relied
   | JaggedCuts | NestedSpans | FinishOnly | MultipleIntensity | UnservedSelection
   | ManySources | SlowPower | SharedGrid | ManySpans | HundredsOfSpans
-  | EightGpus | LongEpoch | LongSession
+  | EightGpus | LongEpoch | LongSession | HandledLate
   deriving (Eq, Show, Enum, Bounded)
 
 labelName :: Label -> String
@@ -38,6 +38,7 @@ labelName = \case
   EightGpus -> "8 GPUs busy at once"
   LongEpoch -> "a span with 100 or more children"
   LongSession -> "a session longer than the grid's minute"
+  HandledLate -> "a read handled after its deadline, returned before it"
 
 allReads :: Case -> [ReadBehaviour]
 allReads c = concatMap provReads (caseProviders c)
@@ -113,6 +114,8 @@ traceLabels c tr =
                    | cut <- traceCuts tr, (src, Nothing) <- M.toList (cutRelied cut)
                    , p <- neverIds, src `elem` sourcesOf p ])
   , (QueuedRelied, or [ reqQueued r | r <- relied ])
+  , (HandledLate, or [ a > s + caseTimeout c | r <- traceRequests tr, reqAnswer r `elem` [Just AnsRead, Just AnsUnchanged]
+                     , Just s <- [reqStarted r], Just a <- [reqAnswered r] ])
   , (Row4Relied, or [ reqAnswer r `elem` [Just AnsSkipped, Just AnsFailed] && reqSent r < cutAt cut
                     | cut <- traceCuts tr, Just i <- M.elems (cutRelied cut)
                     , Just r <- [M.lookup i byId] ])

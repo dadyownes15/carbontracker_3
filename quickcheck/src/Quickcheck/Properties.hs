@@ -9,7 +9,8 @@ import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Aeson (encode)
 import qualified Data.ByteString.Lazy as BL
-import Data.List (sortOn)
+import Data.List (isPrefixOf, sortOn)
+import qualified Data.Text as T
 import Data.Maybe (isJust, fromMaybe)
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (lookupEnv)
@@ -89,9 +90,9 @@ data TraceTest = TraceTest
 traceTests :: [TraceTest]
 traceTests =
   [ TraceTest "every closed span settles once, children first; the session ends"
-      NestedSpans genScenario settlesOnce
+      NestedSpans genStalledScenario settlesOnce
   , TraceTest "each segment is accounted at most once, in order per source"
-      JaggedCuts genScenario accountedOnce
+      JaggedCuts genStalledScenario accountedOnce
   , TraceTest "clean Queue: ledgers per source = PUE x exact integral of truth"
       MultipleIntensity genCleanScenario exactTotals
   , TraceTest "Queue: accounted within max(cooldown, timeout) + timeout of its end"
@@ -99,7 +100,9 @@ traceTests =
   , TraceTest "while a provider stays unready, cuts send it at most one request"
       Row4Relied genScenario oneRequestPerStretch
   , TraceTest "a span is billed only for sources it selected"
-      JaggedCuts genScenario billedOnlySelected
+      JaggedCuts genStalledScenario billedOnlySelected
+  , TraceTest "a read's verdict follows its own latency, however long the engine stalls"
+      HandledLate genStalledScenario verdictByLatency
   ]
 
 -- | Runs one trace test against the binary. A failing case writes its input
@@ -147,13 +150,17 @@ bySource :: Trace -> M.Map SourceId [Segment]
 bySource t = M.map (sortOn segFrom) $
   M.fromListWith (++) [(segSource s, [s]) | s <- traceSegments t]
 
+-- | Segments of some width never overlap. Cuts at one instant leave
+-- zero-width segments there, which bill nothing (AC/MEAS-79).
 accountedOnce :: Case -> Trace -> Property
 accountedOnce _ t = conjoin
   [ counterexample ("source " ++ show src ++ ": " ++ show segs) $
-      noDup segs .&&. inOrder (map segAccounted segs)
-  | (src, segs) <- M.toList (bySource t) ]
+      noOverlap segs .&&. inOrder (map segAccounted segs)
+  | (src, segs) <- M.toList (M.map (sortOn (\g -> (segFrom g, segTo g))) (bySource t)) ]
   where
-    noDup segs = let ks = map segFrom segs in S.size (S.fromList ks) == length ks
+    noOverlap segs =
+      let wide = [g | g <- segs, segTo g > segFrom g]
+      in and (zipWith (\a b -> segTo a <= segFrom b) wide (drop 1 wide))
     inOrder xs = case span isJust xs of
       (done, rest) -> all (== Nothing) rest && and (zipWith (<=) done (drop 1 done))
 
@@ -161,6 +168,7 @@ exactTotals :: Case -> Trace -> Property
 exactTotals c t = conjoin $
   [ counterexample ("energy of " ++ show src) $ close got want
   | (src, _) <- powerSources (caseProviders c)
+  , not (readOnceCounter src)
   , let segs = M.findWithDefault [] src (bySource t)
         got = sum (map segEnergy segs)
         want = casePue c * energyJ (truth src) 0 end ]
@@ -177,6 +185,12 @@ exactTotals c t = conjoin $
   where
     end = opAt (last (caseProgram c))
     truth s = M.findWithDefault [] s (caseTruth c)
+    -- A counter whose provider is read once has one sample, so its energy
+    -- is unknown and nothing is billed.
+    readOnceCounter src = case providerOf (caseProviders c) src of
+      Just p -> provCooldown p == Nothing
+        && or [k == Total | PowerSource slot _ k <- provSources p, sourceId (provId p) slot == src]
+      Nothing -> False
 
 accountedInBound :: Case -> Trace -> Property
 accountedInBound c t = conjoin
@@ -204,7 +218,9 @@ oneRequestPerStretch c t = conjoin
   , let reqs = [r | r <- traceRequests t, reqProvider r == provId p]
         reads = zip [0 :: Int ..] (sortOn reqStarted [r | r <- reqs, isJust (reqStarted r)])
         behaviour k = let rs = provReads p in if k < length rs then rs !! k else last rs
-        info = [ (s, reqAnswered r, isPanic (behaviour k)) | (k, r) <- reads, Just s <- [reqStarted r] ]
+        -- When each read returned, from its script: a read past the timeout
+        -- answers its request before it returns.
+        info = [ (s, (s +) <$> latency (behaviour k), isPanic (behaviour k)) | (k, r) <- reads, Just s <- [reqStarted r] ]
         cd = provCooldown p
         marks = S.toList . S.fromList $ concat
           [ [s, s + to] ++ maybe [] (\d -> [s + d]) cd ++ maybe [] pure ret | (s, ret, _) <- info ]
@@ -217,12 +233,38 @@ oneRequestPerStretch c t = conjoin
   where
     to = caseTimeout c
     isPanic = \case ReadPanic _ -> True; _ -> False
+    latency = \case ReadOk l -> Just l; ReadEmpty l -> Just l; ReadPanic l -> Just l; ReadHang -> Nothing
     unready info cd x = or
       [ s <= x && (inCooldown || inFlight || retired)
       | (s, ret, panicked) <- info
       , let inCooldown = maybe True (\d -> x < s + d) cd
             inFlight = maybe True (> x) ret
             retired = panicked && maybe False (<= x) ret ]
+
+-- | AC/TST-36, AC/MEAS-56, AC/MEAS-57, AC/MEAS-98: each read that started answers its
+-- request by its own latency against the timeout, whenever the engine got
+-- round to it: in time, its samples (or nothing new); past the timeout or
+-- hung, timed out; a panic in time, panicked.
+verdictByLatency :: Case -> Trace -> Property
+verdictByLatency c t = conjoin
+  [ counterexample ("provider " ++ show (provId p) ++ ", read " ++ show k ++ " (" ++ show b ++ "): " ++ show r)
+      (expected b r)
+  | p <- caseProviders c
+  , let started = sortOn reqStarted [r | r <- traceRequests t, reqProvider r == provId p, isJust (reqStarted r)]
+  , (k, r) <- zip [0 :: Int ..] started
+  , isJust (reqAnswered r)
+  , let b = behaviour p k ]
+  where
+    to = caseTimeout c
+    behaviour p k = case provReads p of
+      [] -> ReadOk 0
+      rs -> rs !! min k (length rs - 1)
+    timedOut r = reqAnswer r == Just AnsFailed && reqFailure r == Just (T.pack "the read timed out")
+    expected b r = case b of
+      ReadOk l | l < to -> reqAnswer r == Just AnsRead
+      ReadEmpty l | l < to -> reqAnswer r == Just AnsUnchanged
+      ReadPanic l | l < to -> reqAnswer r == Just AnsFailed && maybe False (("the read panicked" `isPrefixOf`) . T.unpack) (reqFailure r)
+      _ -> timedOut r
 
 billedOnlySelected :: Case -> Trace -> Property
 billedOnlySelected c t = conjoin

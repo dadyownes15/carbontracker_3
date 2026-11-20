@@ -68,6 +68,11 @@ impl Tracker {
     /// request answers each source it cuts. A refused one (a closed parent, a
     /// repeated stop, a mark on a closed span), every query and every
     /// subscription ask nothing.
+    #[cfg(feature = "replay")]
+    pub(crate) fn session_mut(&mut self) -> &mut Session {
+        &mut self.session
+    }
+
     /// Add `subscriber` before any message is handled, so it hears every event.
     pub(crate) fn subscribe(&mut self, subscriber: crate::application::subscribers::Subscriber) {
         self.subscribers.add(subscriber);

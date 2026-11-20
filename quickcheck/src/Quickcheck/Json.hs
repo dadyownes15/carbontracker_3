@@ -77,6 +77,9 @@ data Case = Case
   , casePairs           :: M.Map SourceId SourceId
   , caseTruth           :: M.Map SourceId [(Us, Double)]
   , caseProgram         :: [Op]
+  -- | Stretches [from, until) in which the engine handles nothing, as on a
+  -- busy host. Only the stateful replay reads them.
+  , caseStalls          :: [(Us, Us)]
   } deriving (Eq, Show)
 
 instance ToJSON Policy where
@@ -132,7 +135,8 @@ instance ToJSON Case where
     , "providers" .= caseProviders c
     , "pairs" .= casePairs c
     , "truth" .= caseTruth c
-    , "program" .= caseProgram c ]
+    , "program" .= caseProgram c
+    , "stalls_us" .= caseStalls c ]
 
 -- Output ----------------------------------------------------------------
 

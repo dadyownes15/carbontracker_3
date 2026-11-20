@@ -20,13 +20,14 @@ data Scenario = Scenario
   , scPairs     :: M.Map SourceId SourceId
   , scTruth     :: M.Map SourceId [(Us, Double)]
   , scPlan      :: Plan
+  , scStalls    :: [(Us, Us)]
   } deriving (Eq, Show)
 
 toCase :: Scenario -> Case
 toCase s = Case
   { casePue = scPue s, caseReadoutInterval = scInterval s, caseTimeout = scTimeout s
   , caseProviders = scProviders s, casePairs = scPairs s, caseTruth = scTruth s
-  , caseProgram = scheduled (scPlan s) }
+  , caseProgram = scheduled (scPlan s), caseStalls = scStalls s }
 
 powerSources :: [Provider] -> [(SourceId, Domain)]
 powerSources ps =
@@ -89,6 +90,7 @@ shrinkScenario s =
   [s { scPlan = p } | p <- shrinkPlan (scPlan s)]
   ++ [s { scProviders = ps } | ps <- readShrinks (scProviders s)]
   ++ [s { scTruth = t } | t <- truthShrinks (scTruth s)]
+  ++ [s { scStalls = take i (scStalls s) ++ drop (i + 1) (scStalls s) } | i <- [0 .. length (scStalls s) - 1]]
 
 readShrinks :: [Provider] -> [[Provider]]
 readShrinks ps =

@@ -46,7 +46,7 @@ still fail for exactly one reason.
 |---|---|---|---|
 | L1 | unit | Domain types: units, sample kinds, timeline arithmetic, the read gate | `crates/*/src/**` in-module `#[cfg(test)]` |
 | L2 | model | The accounting model over random sessions: conservation, settle-once, billing only what was selected | `crates/engine/src/domain/properties.rs` |
-| L3 | simulation | A whole session over generated programs, hosts and worlds; the read gate against generated streams of requests | `quickcheck/` against `replay-pure`; `crates/engine/src/tests/{gate,sample_store}.rs` |
+| L3 | simulation | A whole session over generated programs, hosts and worlds; the engine one input at a time, on a busy host; the read gate against generated streams of requests | `quickcheck/` against `replay-pure` and `replay-live`; `crates/engine/src/tests/{engine,gate,sample_store}.rs` |
 | L4 | contract | Everything a downstream crate sees, through the public API, pinned so values are exact; how providers are read, with real threads | `crates/engine/tests/{pinned_run,reading,long_run}.rs`, `crates/providers/src/application/tests/` |
 | L5 | format | Every v1 fixture still reads; this release writes what it says | `crates/run/tests/record.rs` |
 | L6 | end to end | The real binary and the real Python package, pinned, offline | `crates/cli/tests/`, `crates/python/tests/` |
@@ -105,6 +105,7 @@ timing are all generated.
 | A span is billed only for sources it selected | Invariant | <!-- AC/TST-28 -->
 | With a constant intensity, emissions are energy × intensity, and absent with none | Invariant | <!-- AC/TST-29 -->
 | A span counts the samples that landed inside it, and warns of thin coverage below two | Invariant | <!-- AC/TST-30 -->
+| A read answers its request by its own latency against the timeout, however long the engine is stalled | Invariant | <!-- AC/TST-36 quickcheck -->
 
 ## The QuickCheck suite
 
@@ -115,9 +116,12 @@ one. A plan runs as a `Session`, a free monad of caller operations whose
 continuations receive span handles; programs never name span ids. One
 interpreter schedules it into timed ops, a model of the providers turns
 those into the readouts a session sees, and `replay-pure` runs them through
-the real `Session`, store and catalog with no threads and no clock. A
-stateful replay through the public `Tracker` will run the same programs with
-real threads; it is not built yet. <!-- AC/TST-31 -->
+the real `Session`, store and catalog with no threads and no clock.
+`replay-live` runs the same programs through the real engine one input at a
+time, with no threads: each provider's reads follow the case's script, and
+stalls stand for a busy host, in which the engine handles nothing until the
+stall ends. Both are pure: a case gives the same trace on any machine, so
+CI runs them instead of timing tests. <!-- AC/TST-31 -->
 
 **Input is real use, at real size.** Hosts are those carbontracker runs on
 (an Intel laptop, Apple Silicon, a GPU server with up to eight GPUs, a live
@@ -139,7 +143,7 @@ closely enough to be realistic; no property relies on it being exact. The
 expected values come from the program, the world and the trace. <!-- AC/TST-34 -->
 
 **A failing case is written to `quickcheck/failures/` as the JSON
-`replay-pure` reads**, so it can be run again by hand. GHC may be absent:
+the replay reads**, so it can be run again by hand. GHC may be absent:
 the suite then reports itself skipped, never passed. <!-- AC/TST-35 -->
 
 ## Generators and oracles
@@ -207,8 +211,9 @@ Stated so the gaps are decisions, not oversights:
   over a million-sample run (`long_run.rs`). Per-readout cost is not
   checked: a timing budget is the flaky kind of test and buys less than it
   costs.
-- **Timing under load.** `replay-pure` takes its timing from the case, so a
-  fault that appears only under real thread scheduling is invisible to L3
-  until the stateful replay exists.
+- **Timing under load.** The replays take their timing from the case, and a
+  busy host is a stall the case states. A fault that appears only under
+  real thread scheduling, outside the engine's one-input-at-a-time loop, is
+  left to the thread checks in `crates/engine/tests/reading.rs`.
 - **Live sets on a cadence.** They run only when someone runs them, so a
   provider's response shape can change without anyone finding out.

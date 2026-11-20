@@ -78,11 +78,19 @@ pub(crate) async fn next_input(
 pub(crate) struct Engine {
     tracker: Tracker,
     readers: Readers,
+    /// What each source of the last command's cuts relied on.
+    #[cfg(feature = "replay")]
+    relied: Vec<(SourceId, Option<RequestId>)>,
 }
 
 impl Engine {
     pub(crate) fn new(tracker: Tracker, readers: Readers) -> Self {
-        Self { tracker, readers }
+        Self {
+            tracker,
+            readers,
+            #[cfg(feature = "replay")]
+            relied: Vec::new(),
+        }
     }
 
     /// The session's opening cut, stamped `opened_at`: every provider is asked.
@@ -99,7 +107,14 @@ impl Engine {
     /// lands nothing.
     pub(crate) fn step(&mut self, input: Input, now: Instant, wall: Timestamp) {
         let landed = match input {
-            Input::Command(message) => handle(&mut self.tracker, &mut self.readers, message, now, wall),
+            Input::Command(message) => {
+                let handled = handle(&mut self.tracker, &mut self.readers, message, now, wall);
+                #[cfg(feature = "replay")]
+                {
+                    self.relied = handled.relied;
+                }
+                handled.landed
+            }
             Input::Returned(read) if !self.tracker.is_done() => self.readers.returned(read, now, wall),
             Input::Tick if !self.tracker.is_done() => self.readers.advance(now, wall),
             Input::Returned(_) | Input::Tick => Vec::new(),
@@ -120,6 +135,30 @@ impl Engine {
     pub(crate) fn close(self, returns: Returns) {
         self.readers.close(returns);
     }
+
+    /// What each source of the last command's cuts relied on.
+    #[cfg(feature = "replay")]
+    pub(crate) fn take_relied(&mut self) -> Vec<(SourceId, Option<RequestId>)> {
+        std::mem::take(&mut self.relied)
+    }
+
+    /// What happened to requests since last asked.
+    #[cfg(feature = "replay")]
+    pub(crate) fn take_requests(&mut self) -> Vec<crate::adapters::outbound::readers::Logged> {
+        self.readers.take_log()
+    }
+
+    #[cfg(feature = "replay")]
+    pub(crate) fn session_mut(&mut self) -> &mut crate::domain::Session {
+        self.tracker.session_mut()
+    }
+}
+
+/// What handling one message landed, and what its cuts relied on.
+struct Handled {
+    landed: Vec<ReadoutResponse>,
+    #[cfg(feature = "replay")]
+    relied: Vec<(SourceId, Option<RequestId>)>,
 }
 
 /// Hand `message` to the tracker, its cuts asking `readers`: the readouts
@@ -130,10 +169,14 @@ fn handle(
     message: TrackerMessage,
     now: Instant,
     wall: Timestamp,
-) -> Vec<ReadoutResponse> {
+) -> Handled {
     let mut asking = Asking::new(readers, now, wall);
     tracker.handle(message, &mut asking);
-    asking.landed
+    Handled {
+        landed: asking.landed,
+        #[cfg(feature = "replay")]
+        relied: asking.relied,
+    }
 }
 
 /// One message's cuts asking the readers: each provider once per cut.
@@ -143,23 +186,38 @@ struct Asking<'a> {
     wall: Timestamp,
     asked: HashMap<(ProviderId, Timestamp), Option<RequestId>>,
     landed: Vec<ReadoutResponse>,
+    #[cfg(feature = "replay")]
+    relied: Vec<(SourceId, Option<RequestId>)>,
 }
 
 impl<'a> Asking<'a> {
     fn new(readers: &'a mut Readers, now: Instant, wall: Timestamp) -> Self {
-        Self { readers, now, wall, asked: HashMap::new(), landed: Vec::new() }
+        Self {
+            readers,
+            now,
+            wall,
+            asked: HashMap::new(),
+            landed: Vec::new(),
+            #[cfg(feature = "replay")]
+            relied: Vec::new(),
+        }
     }
 }
 
 impl Relying for Asking<'_> {
     fn relied(&mut self, source: SourceId, at: Timestamp) -> Option<RequestId> {
         let provider = source.provider();
-        if let Some(&request) = self.asked.get(&(provider, at)) {
-            return request;
-        }
-        let (request, landed) = self.readers.ask(provider, at, self.now, self.wall);
-        self.landed.extend(landed);
-        self.asked.insert((provider, at), request);
+        let request = match self.asked.get(&(provider, at)) {
+            Some(&request) => request,
+            None => {
+                let (request, landed) = self.readers.ask(provider, at, self.now, self.wall);
+                self.landed.extend(landed);
+                self.asked.insert((provider, at), request);
+                request
+            }
+        };
+        #[cfg(feature = "replay")]
+        self.relied.push((source, request));
         request
     }
 

@@ -26,3 +26,8 @@ serde_json = "1"
 name = "replay-pure"
 path = "src/bin/replay_pure.rs"
 required-features = ["replay"]
+
+[[bin]]
+name = "replay-live"
+path = "src/bin/replay_live.rs"
+required-features = ["replay"]
