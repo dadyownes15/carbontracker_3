@@ -178,6 +178,11 @@ impl Readers {
         let Some(reader) = self.readers.get_mut(&provider) else {
             return (None, landed);
         };
+        // The gate catches up first: a cut handled late must not rely on an
+        // answer from before a timeout that has already passed.
+        let effects = reader.gate.advance(now);
+        self.apply(provider, effects, wall, &mut landed);
+        let reader = self.readers.get_mut(&provider).expect("looked up above");
         let state = reader.gate.state_at(now);
         if state == GateState::Ready {
             reader.asks.transition();
@@ -313,7 +318,7 @@ impl Readers {
                     if matches!(answer, Answer::Failed(Failure::TimedOut)) {
                         reader.asks.transition();
                     }
-                    reader.asks.answered(request, asker, matches!(answer, Answer::Read(_)));
+                    reader.asks.answered(request, asker);
                     // A provider that is done or retired is never asked again.
                     if matches!(answer, Answer::Done | Answer::Failed(Failure::Panicked(_) | Failure::Retired)) {
                         reader.watchdog_at = None;

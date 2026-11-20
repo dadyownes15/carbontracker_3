@@ -179,6 +179,13 @@ impl Driver {
         self.hand_back(provider, Err(ProviderError::Unavailable("busy".to_owned())), returned, seen);
     }
 
+    /// `provider`'s read in flight panicked at `returned` ms, seen at `seen` ms.
+    fn panics(&mut self, provider: ProviderId, returned: u64, seen: u64) {
+        let read = ReadReturn::new(provider, Err("the provider panicked".to_owned()), self.at(returned).0);
+        let (now, wall) = self.at(seen);
+        self.engine.step(Input::Returned(read), now, wall);
+    }
+
     fn hand_back(&mut self, provider: ProviderId, result: Result<ProviderResponse, ProviderError>, returned: u64, seen: u64) {
         let read = ReadReturn::new(provider, Ok(result), self.at(returned).0);
         let (now, wall) = self.at(seen);
@@ -498,4 +505,39 @@ fn each_request_lands_once_and_cuts_inside_a_cooldown_send_one() {
     ids.sort();
     ids.dedup();
     assert_eq!(ids.len(), landed, "no request lands twice");
+}
+
+/// How many of `source`'s observations failed as `failure` says.
+fn failed(driver: &mut Driver, source: SourceId, failure: impl Fn(&Failure) -> bool) -> usize {
+    driver.observed().get(&source).map_or(0, |observations| {
+        observations.iter().filter(|o| matches!(o, Observation::Failed(f) if failure(f))).count()
+    })
+}
+
+/// AC/MEAS-9, AC/MEAS-14, AC/MEAS-34
+#[test]
+fn cuts_to_a_retired_provider_send_it_one_request() {
+    let mut driver = Driver::new(Setup::default());
+    driver.panics(POWER, 5, 5);
+    driver.returns(GRID, 5, 5);
+    for n in 0..5 {
+        let span = driver.start(10 + 10 * n, SourceSelection::All);
+        driver.stop(10 + 10 * n, span);
+    }
+    driver.run_until(100, 1);
+    assert_eq!(failed(&mut driver, power_source(), |f| matches!(f, Failure::Retired)), 1, "{:?}", driver.observed()[&power_source()]);
+}
+
+/// AC/MEAS-12, AC/MEAS-98
+#[test]
+fn a_cut_handled_after_a_timeout_it_has_not_seen_relies_on_no_answer_from_before_it() {
+    let mut driver = Driver::new(Setup { policies: vec![(POWER, UnreadyActions::SKIP)], ..Setup::default() });
+    driver.returns(GRID, 1, 1);
+    // Busy: the cut's request is skipped, and relied on while the read is out.
+    let span = driver.start(100, SourceSelection::All);
+    assert_eq!(driver.observed()[&power_source()].len(), 1, "skipped");
+    // The read times out at 1000 ms; the engine handles nothing until 1500 ms.
+    driver.stop(1500, span);
+    let power = driver.observed()[&power_source()].clone();
+    assert!(matches!(power.as_slice(), [Observation::Skipped(_), Observation::Failed(Failure::TimedOut), Observation::Failed(Failure::Stalled)]), "{power:?}");
 }

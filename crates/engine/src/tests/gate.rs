@@ -247,7 +247,8 @@ proptest! {
                     Read::Hangs => unreachable!("a hung read never returns"),
                 };
                 gate.returned(returned, now, now)
-            } else if cuts_at.get(next) == Some(&now) {
+            } else if cuts_at.get(next) == Some(&now) && gate.wake_at().is_none_or(|wake| wake > now) {
+                // As in the engine, the gate catches up before a cut reads its state.
                 next += 1;
                 let state = gate.state_at(now);
                 if state == GateState::Ready {
@@ -266,7 +267,7 @@ proptest! {
                     Asked::Send => {
                         let request = ReadoutId(next_id);
                         next_id += 1;
-                        if state == GateState::Unready {
+                        if state != GateState::Ready {
                             sent_while_unready += 1;
                             prop_assert!(sent_while_unready <= 1, "two requests sent in one unready stretch at {:?}", now - t0);
                         }
@@ -301,7 +302,7 @@ proptest! {
                         }
                         // Failed, or Done: a done provider answers every cut at once.
                         let failed = matches!(answer, Answer::Failed(_) | Answer::Done);
-                        asks.answered(request, Asker::Cut, read);
+                        asks.answered(request, Asker::Cut);
                         answers.insert(request, (now, read, failed));
                     }
                 }

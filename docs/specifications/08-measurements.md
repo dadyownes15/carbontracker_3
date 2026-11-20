@@ -39,7 +39,9 @@ already sent can answer it.** The first row that fits decides. <!-- AC/MEAS-5 --
 | 6. Is unready otherwise | A request sent now, which its policy queues or skips | <!-- AC/MEAS-11 -->
 
 Row 4 covers any answer without a read, `Skipped` or `Failed`, while the
-provider stays unready. **Its stretch ends at any transition:** a read
+provider stays unready, retired or out past the timeout included. A request
+whose read started was answered by that read, even one that timed out or
+panicked. **Its stretch ends at any transition:** a read
 starting, returning or timing out ends it, and so does the provider being
 ready. A watchdog answer without a read is never relied on. <!-- AC/MEAS-12 -->
 

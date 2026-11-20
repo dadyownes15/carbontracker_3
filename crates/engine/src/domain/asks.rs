@@ -35,8 +35,8 @@ pub(crate) enum Asked {
 pub(crate) struct Asks {
     /// The latest read started, out or landed, and when.
     latest_read: Option<(RequestId, Timestamp)>,
-    /// A cut's request answered without a read while the provider has stayed
-    /// unready since.
+    /// A cut's request answered with no read started for it, while the
+    /// provider has stayed unready since.
     unready_answer: Option<RequestId>,
     /// A `Never` provider: its value cannot change, so a read out answers a
     /// cut whenever it started.
@@ -67,8 +67,12 @@ impl Asks {
         }
         match gate {
             GateState::Done => Asked::Nothing,
-            GateState::Ready | GateState::Failing => Asked::Send,
+            GateState::Ready => Asked::Send,
             GateState::Unready => match queued.or(self.unready_answer) {
+                Some(request) => Asked::Relies(request),
+                None => Asked::Send,
+            },
+            GateState::Failing => match self.unready_answer {
                 Some(request) => Asked::Relies(request),
                 None => Asked::Send,
             },
@@ -81,14 +85,14 @@ impl Asks {
         self.out = Some(request);
     }
 
-    /// `request`, sent by `asker`, was answered; `read` if a read made for it
-    /// returned. A cut's answer without a read is relied on while the
-    /// provider stays unready; a watchdog's never is.
-    pub(crate) fn answered(&mut self, request: RequestId, asker: Asker, read: bool) {
+    /// `request`, sent by `asker`, was answered. A cut's request answered
+    /// with no read started for it is relied on while the provider stays
+    /// unready; a watchdog's never is. One whose read started was answered by
+    /// that read, even if it timed out or panicked.
+    pub(crate) fn answered(&mut self, request: RequestId, asker: Asker) {
         if self.out == Some(request) {
             self.out = None;
-        }
-        if !read && asker == Asker::Cut {
+        } else if asker == Asker::Cut {
             self.unready_answer = Some(request);
         }
     }
@@ -162,7 +166,7 @@ mod tests {
         let mut asks = Asks::default();
         asks.started(r(1), ms(2900));
         assert_eq!(asks.cut(ms(3050), GateState::Unready, None), Asked::Send);
-        asks.answered(r(2), Asker::Cut, false);
+        asks.answered(r(2), Asker::Cut);
         for stamp in [3300, 3310, 3750, 3900] {
             assert_eq!(asks.cut(ms(stamp), GateState::Unready, None), Asked::Relies(r(2)));
         }
@@ -172,7 +176,7 @@ mod tests {
     #[test]
     fn after_a_transition_a_cut_is_sent_a_new_request() {
         let mut asks = Asks::default();
-        asks.answered(r(2), Asker::Cut, false);
+        asks.answered(r(2), Asker::Cut);
         asks.transition();
         assert_eq!(asks.cut(ms(63_910), GateState::Ready, None), Asked::Send);
         assert_eq!(asks.cut(ms(63_910), GateState::Unready, None), Asked::Send);
@@ -182,7 +186,7 @@ mod tests {
     #[test]
     fn a_watchdog_answer_without_a_read_is_not_relied_on() {
         let mut asks = Asks::default();
-        asks.answered(r(5), Asker::Watchdog, false);
+        asks.answered(r(5), Asker::Watchdog);
         assert_eq!(asks.cut(ms(1000), GateState::Unready, None), Asked::Send);
     }
 
@@ -198,8 +202,19 @@ mod tests {
     #[test]
     fn a_failing_provider_is_sent_a_request_that_fails_at_once() {
         let mut asks = Asks::default();
-        asks.answered(r(2), Asker::Cut, false);
+        asks.answered(r(2), Asker::Cut);
+        asks.transition();
         assert_eq!(asks.cut(ms(5500), GateState::Failing, None), Asked::Send);
+    }
+
+    /// AC/MEAS-5, AC/MEAS-9, AC/MEAS-14
+    #[test]
+    fn a_failing_provider_is_relied_on_while_its_last_answer_stands() {
+        let mut asks = Asks::default();
+        asks.answered(r(3), Asker::Cut);
+        for stamp in [5500, 5500, 9000] {
+            assert_eq!(asks.cut(ms(stamp), GateState::Failing, None), Asked::Relies(r(3)));
+        }
     }
 
     /// AC/MEAS-5
@@ -230,7 +245,7 @@ mod tests {
         let mut asks = Asks::never();
         asks.started(r(1), ms(3000));
         assert_eq!(asks.cut(ms(3300), GateState::Unready, None), Asked::Relies(r(1)));
-        asks.answered(r(1), Asker::Cut, true);
+        asks.answered(r(1), Asker::Cut);
         assert_eq!(asks.cut(ms(3400), GateState::Ready, None), Asked::Send, "an incomplete answer is read again");
         assert_eq!(asks.cut(ms(3500), GateState::Done, None), Asked::Nothing);
     }
