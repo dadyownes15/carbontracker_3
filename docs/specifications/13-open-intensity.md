@@ -15,7 +15,7 @@ document says what each one reads and when.
 | Candidate | Publisher | Grids | Published every | Forecast |
 |---|---|---|---|---|
 | `energinet` | Energinet, Energi Data Service (`CO2Emis`, `CO2EmisProg`) | `DK-DK1`, `DK-DK2` | 5 min | Yes, to the end of the next day | <!-- AC/OPEN-2 -->
-| `neso` | NESO, Carbon Intensity API | `GB` (Great Britain, national), and its regions `GB-NESO-1` to `GB-NESO-17` | 30 min | Yes, 48 h | <!-- AC/OPEN-3 unbuilt -->
+| `neso` | NESO, Carbon Intensity API | `GB` (Great Britain, national), and its regions `GB-NESO-1` to `GB-NESO-17` | 30 min | Yes, 48 h | <!-- AC/OPEN-3 -->
 | `energy-charts` | Fraunhofer ISE, Energy-Charts (`co2eq`) | The countries it publishes `co2eq` for | 15 min | Yes | <!-- AC/OPEN-4 unbuilt -->
 
 **A source serves only the grids its table row names.** A location outside
@@ -41,7 +41,7 @@ asked for: `SE-SE3` read from `energy-charts` is described as `SE`. <!-- AC/OPEN
 **A NESO region is stated by NESO's region id**: 1 to 14 are the
 distribution regions, from `GB-NESO-1` North Scotland to `GB-NESO-14` South
 East England, and 15 to 17 are England, Scotland and Wales. An id outside 1
-to 17 is declined, saying which. <!-- AC/OPEN-37 unbuilt -->
+to 17 is declined, saying which. <!-- AC/OPEN-37 -->
 
 **An estimated location carries the postcode the geolocation service gives**,
 in `Estimate`, when it gives one. <!-- AC/OPEN-40 unbuilt -->
@@ -67,7 +67,7 @@ one for an interval still to come.** `energinet` reads `CO2Emis`;
 latest half-hour with an `actual`. <!-- AC/OPEN-15 -->
 
 **A NESO region is read from the current half-hour's `forecast`**, since NESO
-publishes no other figure for a region, not even afterwards. <!-- AC/OPEN-38 unbuilt -->
+publishes no other figure for a region, not even afterwards. <!-- AC/OPEN-38 -->
 
 **Every open source is `Measured` and `Held`.** <!-- AC/OPEN-17 -->
 
@@ -78,7 +78,7 @@ Electricity Maps is asked for lifecycle figures. <!-- AC/OPEN-18 unbuilt -->
 | Candidate | Cooldown |
 |---|---|
 | `energinet` | 1 min | <!-- AC/OPEN-19 -->
-| `neso` | 5 min | <!-- AC/OPEN-20 unbuilt -->
+| `neso` | 5 min | <!-- AC/OPEN-20 -->
 | `energy-charts` | 5 min | <!-- AC/OPEN-21 unbuilt -->
 
 **A refusal for asking too often is `RateLimited`.** <!-- AC/OPEN-23 -->
