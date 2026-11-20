@@ -15,7 +15,7 @@ from __future__ import annotations
 import functools
 import inspect
 from contextvars import ContextVar, Token
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 _running: ContextVar[Optional[RunningSpan]] = ContextVar("carbontracker_span", default=None)
 """The innermost span running in this thread or task."""
@@ -25,14 +25,15 @@ class Span:
     """A span not started yet. Each ``with``, decorated call or ``start()``
     starts a new one, so the same ``Span`` can be used again and again."""
 
-    def __init__(self, tracker, name: str, parent: Optional[RunningSpan]):
+    def __init__(self, tracker, name: str, parent: Optional[RunningSpan], selection: Dict[str, List[str]]):
         self._tracker = tracker
         self.name = name
         self._parent = parent
+        self._selection = selection
 
     def start(self) -> RunningSpan:
         """Start a span now; stop it yourself."""
-        return self._tracker._start_span(self.name, self._parent)
+        return self._tracker._start_span(self.name, self._parent, self._selection)
 
     def __enter__(self) -> RunningSpan:
         running = self.start()

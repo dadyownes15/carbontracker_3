@@ -136,15 +136,16 @@ class Profiler:
             time.sleep(self.settings.baseline_s)
             self.stop(span, [])
 
-    def start(self, name: str, parent: Optional[int]) -> int:
+    def start(self, name: str, parent: Optional[int], selection: Optional[Dict[str, List[str]]] = None) -> int:
+        selection = selection or {}
         began = time.perf_counter()
         if self.settings.settle_s:
             time.sleep(self.settings.settle_s)
         outer = self._records.get(parent) if parent is not None else None
         if self.settings.wait and not self._overlapped(None, outer):
-            span, _, after, late = self._native.start_span_paced(name, parent)
+            span, _, after, late = self._native.start_span_paced(name, parent, **selection)
         else:
-            span, after, late = self._native.start_span(name, parent), 0.0, []
+            span, after, late = self._native.start_span(name, parent, **selection), 0.0, []
         now = time.perf_counter()
         if outer is not None:
             # Settling and the wait before the start are inside the parent.

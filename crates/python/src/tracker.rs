@@ -19,7 +19,7 @@ use carbontracker_providers::{
 };
 use carbontracker_run::{
     presentation, standard_sinks, LatestForecast, Console, Folder, Layout, Outcome, Predictor, RunConfig,
-    RunHandle, SourceSelection, SpanId, Verbosity, Work,
+    PowerDomain, RunHandle, SourceSelection, SpanId, Verbosity, Work,
 };
 use pyo3::exceptions::{PyOSError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -203,10 +203,18 @@ impl Tracker {
         Ok(dict)
     }
 
-    /// Open a span. Never waits.
-    #[pyo3(signature = (name, parent=None))]
-    fn start_span(&self, name: &str, parent: Option<usize>) -> PyResult<usize> {
-        self.with_run(|run| run.start_span(name, parent.map(SpanId::new), SourceSelection::All).get())
+    /// Open a span billing `domains` or `sources` (ids from `sources()`),
+    /// else every source. Never waits.
+    #[pyo3(signature = (name, parent=None, *, domains=None, sources=None))]
+    fn start_span(
+        &self,
+        name: &str,
+        parent: Option<usize>,
+        domains: Option<Vec<String>>,
+        sources: Option<Vec<String>>,
+    ) -> PyResult<usize> {
+        let selection = self.selection(domains, sources)?;
+        self.with_run(|run| run.start_span(name, parent.map(SpanId::new), selection).get())
     }
 
     /// Report work on an open span. Never waits.
@@ -224,20 +232,23 @@ impl Tracker {
     /// ready, start, then wait for the reads the start asked for. Returns the
     /// span, the seconds waited before and after its start, and the sources
     /// whose read came late.
-    #[pyo3(signature = (name, parent=None))]
+    #[pyo3(signature = (name, parent=None, *, domains=None, sources=None))]
     fn start_span_paced(
         &self,
         py: Python<'_>,
         name: &str,
         parent: Option<usize>,
+        domains: Option<Vec<String>>,
+        sources: Option<Vec<String>>,
     ) -> PyResult<(usize, f64, f64, Vec<String>)> {
+        let selection = self.selection(domains, sources)?;
         let began = Instant::now();
         let plan = profiler::start(&self.paced, &self.freshness.newest(), chrono::Utc::now());
         py.detach(|| sleep_until(plan.at));
         let after = chrono::Utc::now();
         let before = began.elapsed().as_secs_f64();
         let cut = Instant::now();
-        let span = self.with_run(|run| run.start_span(name, parent.map(SpanId::new), SourceSelection::All).get())?;
+        let span = self.with_run(|run| run.start_span(name, parent.map(SpanId::new), selection).get())?;
         let read: Paced = self.paced.iter().filter(|(source, ..)| plan.read.contains(source)).copied().collect();
         let deadline = Instant::now() + self.fetch_timeout;
         let late = py.detach(|| self.await_fresh(span, &read, after, deadline));
@@ -321,6 +332,26 @@ impl Tracker {
         }
     }
 
+    /// The selection a span bills: `domains` by name, or `sources` by id.
+    fn selection(&self, domains: Option<Vec<String>>, sources: Option<Vec<String>>) -> PyResult<SourceSelection> {
+        match (domains, sources) {
+            (None, None) => Ok(SourceSelection::All),
+            (Some(domains), None) => domains.iter().map(String::as_str).map(domain).collect::<PyResult<_>>().map(SourceSelection::Domains),
+            (None, Some(ids)) => ids
+                .iter()
+                .map(|id| {
+                    self.sources
+                        .iter()
+                        .find(|(source, _)| source.to_string() == *id)
+                        .map(|(source, _)| *source)
+                        .ok_or_else(|| invalid(format!("{id:?} is not a power source this tracker measures")))
+                })
+                .collect::<PyResult<_>>()
+                .map(SourceSelection::Sources),
+            (Some(_), Some(_)) => Err(invalid("a span selects domains or sources, not both")),
+        }
+    }
+
     fn with_run<R>(&self, call: impl FnOnce(&RunHandle<Projected>) -> R) -> PyResult<R> {
         let run = self.run.lock().expect("not poisoned");
         run.as_ref().map(call).ok_or_else(|| stopped("tracking has stopped"))
@@ -355,6 +386,18 @@ fn location(
         return Ok(Some(GridLocation::Coordinates { latitude: at.latitude(), longitude: at.longitude() }));
     }
     Ok(global.then_some(GridLocation::Global))
+}
+
+/// A power domain by its name.
+fn domain(name: &str) -> PyResult<PowerDomain> {
+    Ok(match name {
+        "cpu" => PowerDomain::Cpu,
+        "gpu" => PowerDomain::Gpu,
+        "ram" => PowerDomain::Ram,
+        "ane" => PowerDomain::Ane,
+        "system" => PowerDomain::System,
+        _ => return Err(invalid(format!("{name:?} is not a power domain: cpu, gpu, ram, ane or system"))),
+    })
 }
 
 /// A stated draw, named for its error.

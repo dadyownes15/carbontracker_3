@@ -29,7 +29,7 @@ import os
 import sys
 import traceback
 import weakref
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from . import _native
 from . import profiler as _profiler
@@ -41,6 +41,9 @@ PUE_2023 = 1.58
 
 EPOCH = "epoch"
 """The name of each epoch's span, which the prediction is made from."""
+
+DOMAINS = ("cpu", "gpu", "ram", "ane", "system")
+"""The power domains a span can name in ``sources``."""
 
 class TrackingError(RuntimeError):
     """Raised when tracking fails and ``ignore_errors`` is not set."""
@@ -290,7 +293,7 @@ class CarbonTracker:
         except Exception as e:
             self._handle_error(e)
 
-    def span(self, name: str, parent: Optional[RunningSpan] = None) -> Span:
+    def span(self, name: str, parent: Optional[RunningSpan] = None, *, sources=None) -> Span:
         """New in 3.0.0. Measure part of your code as a named span.
 
         The span starts on each ``with``, each call of a decorated function,
@@ -301,15 +304,21 @@ class CarbonTracker:
             name: shown in the log files, e.g. ``"eval"``. ``"epoch"`` is
                 taken by the epochs.
             parent: the span to nest under, instead of the default.
+            sources: the power sources the span bills: domain names
+                (``"cpu"``, ``"gpu"``, ``"ram"``, ``"ane"``, ``"system"``), or
+                ``Source``s from ``tracker.sources``, one or a list. ``None``
+                bills every source. A domain this tracker does not measure
+                selects nothing.
 
         Raises:
-            ValueError: for the name ``"epoch"``.
+            ValueError: for the name ``"epoch"``, or an invalid ``sources``,
+                whatever ``ignore_errors`` says.
             RuntimeError: on starting, once tracking has stopped. A decorated
                 function then runs untracked instead.
         """
         if name == EPOCH:
             raise ValueError(f"{EPOCH!r} is the epochs' span name; choose another")
-        return Span(self, name, parent)
+        return Span(self, name, parent, self._selection(sources))
 
     def predict(self, epochs: Optional[int] = None) -> Optional[Prediction]:
         """New in 3.0.0. What the whole run is expected to cost, from the epochs
@@ -372,7 +381,43 @@ class CarbonTracker:
             print(f"{_native.PREFIX}{warning}", file=sys.stderr, flush=True)
         return native
 
-    def _start_span(self, name: str, parent: Optional[RunningSpan]) -> RunningSpan:
+    def _selection(self, sources) -> Dict[str, List[str]]:
+        """``sources`` as the native span's keywords."""
+        if sources is None:
+            return {}
+        domains = ", ".join(DOMAINS)
+
+        def refuse(why: str) -> ValueError:
+            return ValueError(f"sources={sources!r}: {why}; name domains ({domains}) or Sources from tracker.sources")
+
+        if isinstance(sources, (str, Source)):
+            chosen = [sources]
+        else:
+            try:
+                chosen = list(sources)
+            except TypeError:
+                raise refuse("not a domain name, a Source or an iterable of them") from None
+        if not chosen:
+            raise refuse("selects nothing")
+        if all(isinstance(source, str) for source in chosen):
+            for name in chosen:
+                if name not in DOMAINS:
+                    is_id = name in self.sources
+                    raise refuse(f"{name!r} is a source id, not a domain; pass the Source" if is_id else f"{name!r} is not a domain")
+            return {"domains": chosen}
+        if all(isinstance(source, Source) for source in chosen):
+            for source in chosen:
+                if source.kind != "power":
+                    raise refuse(f"{source.label!r} is an intensity source; each power source brings its own")
+                # Sources compare by value, so only identity tells this tracker's apart.
+                if self.sources.get(source.id) is not source:
+                    raise refuse(f"{source.label!r} is not a source of this tracker")
+            return {"sources": [source.id for source in chosen]}
+        if all(isinstance(source, (str, Source)) for source in chosen):
+            raise refuse("mixes domain names and Sources")
+        raise refuse("holds something that is neither a domain name nor a Source")
+
+    def _start_span(self, name: str, parent: Optional[RunningSpan], selection: Dict[str, List[str]]) -> RunningSpan:
         if self._forked:
             return untracked(self, name)
         if not self._tracking:
@@ -380,9 +425,9 @@ class CarbonTracker:
         parent = parent or innermost(self)
         parent_id = parent.id if parent is not None else self._epoch
         if self._profiler is not None:
-            id = self._profiler.start(name, parent_id)
+            id = self._profiler.start(name, parent_id, selection)
         else:
-            id = self._native.start_span(name, parent_id)
+            id = self._native.start_span(name, parent_id, **selection)
         return RunningSpan(self._native, self, id, name)
 
     def _stop_span(self, id: int, work) -> None:
