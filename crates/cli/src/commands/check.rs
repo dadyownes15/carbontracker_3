@@ -120,16 +120,21 @@ fn rows(resolution: &Resolution) -> Vec<Row> {
     rows.extend(intensity);
 
     if let Some(forecaster) = resolution.forecaster() {
-        let hours = forecaster.horizon().as_secs_f64() / 3600.0;
         let what = match forecaster.served_by() {
             "static" => "the given value".to_owned(),
             "projection" => "current intensity held flat".to_owned(),
             "electricity-maps-forecast" => "Electricity Maps forecast".to_owned(),
             name => name.to_owned(),
         };
-        rows.push(Row { label: "forecast", how: Some(How::of(forecaster.fidelity())), what: format!("{what}, {hours} h") });
+        rows.push(Row { label: "forecast", how: Some(How::of(forecaster.fidelity())), what: format!("{what}, {} h", hours(forecaster.horizon())) });
     }
     rows
+}
+
+/// A duration in hours with at most one decimal: `24`, `1.5`.
+pub(crate) fn hours(duration: std::time::Duration) -> String {
+    let text = format!("{:.1}", duration.as_secs_f64() / 3600.0);
+    text.strip_suffix(".0").map_or(text.clone(), str::to_owned)
 }
 
 /// Every provider serving, in chain order, once each.
@@ -271,6 +276,15 @@ mod tests {
         assert!(warnings(&pinned, &keyed()).is_empty());
         let declined = [outcome("electricity-maps", Verdict::Declined("no Electricity Maps key".into()))];
         assert!(warnings(&declined, &Keys::new()).is_empty());
+    }
+
+    #[test]
+    fn hours_keep_at_most_one_decimal() {
+        let hours = |seconds: f64| hours(std::time::Duration::from_secs_f64(seconds));
+        assert_eq!(hours(86_342.768), "24");
+        assert_eq!(hours(24.0 * 3600.0), "24");
+        assert_eq!(hours(5400.0), "1.5");
+        assert_eq!(hours(900.0), "0.2");
     }
 
     #[test]

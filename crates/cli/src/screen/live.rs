@@ -5,11 +5,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use carbontracker::{Observation, SampleKind, SourceDescription, SourceId, Timestamp};
+use carbontracker::{Observation, PowerDomain, SampleKind, SourceDescription, SourceId, Timestamp};
 use carbontracker_providers::Verdict;
 use carbontracker_run::{presentation, ForecastSource};
 
-use crate::commands::{How, key_warning};
+use crate::commands::{How, hours, key_warning};
 
 /// One thing the run reported, as the view needs it.
 #[derive(Debug, Clone)]
@@ -263,23 +263,38 @@ impl Live {
             return Self::none("power");
         }
         let how = sources.iter().map(|source| How::of(source.description.fidelity())).max();
-        // Each serving candidate once, with its own total.
-        let mut by: Vec<(&str, Option<f64>)> = Vec::new();
+        // Each provider once, naming each of its components with its total.
+        let mut groups: Vec<(&str, Vec<Component>)> = Vec::new();
         for source in &sources {
+            let SourceDescription::Power { domain, .. } = source.description else { continue };
             let watts = self.value(source);
-            match by.iter_mut().find(|(name, _)| *name == source.served_by) {
+            let index = match groups.iter().position(|(name, _)| *name == source.served_by) {
+                Some(index) => index,
+                None => {
+                    groups.push((source.served_by, Vec::new()));
+                    groups.len() - 1
+                }
+            };
+            let components = &mut groups[index].1;
+            match components.iter_mut().find(|(served, _)| *served == domain) {
                 Some((_, total)) => *total = total.zip(watts).map(|(a, b)| a + b),
-                None => by.push((source.served_by, watts)),
+                None => components.push((domain, watts)),
             }
         }
-        let by = by
+        let by = groups
             .iter()
-            .map(|(name, watts)| match watts {
-                Some(watts) => format!("{name} {watts:.1} W"),
-                None => format!("{name} …"),
+            .map(|(name, components)| {
+                let parts: Vec<String> = components
+                    .iter()
+                    .map(|(domain, watts)| match watts {
+                        Some(watts) => format!("{domain} {watts:.1} W"),
+                        None => format!("{domain} …"),
+                    })
+                    .collect();
+                format!("{} ({name})", parts.join(", "))
             })
             .collect::<Vec<_>>()
-            .join(", ");
+            .join(" · ");
         let failure = self.failures(&sources);
         let value = match self.watts() {
             Some(watts) => stale(format!("{watts:.1} W"), failure.is_some()),
@@ -305,7 +320,7 @@ impl Live {
             Some(name) => {
                 let how = if name.starts_with("stated") { How::Stated } else { How::Live };
                 let value = place.unwrap_or_else(|| "…".into());
-                KindLine { label: "location", value, how: Some(how), by: name.into(), failure: None }
+                KindLine { label: "location", value, how: Some(how), by: format!("({name})"), failure: None }
             }
             None => KindLine {
                 label: "location",
@@ -325,17 +340,16 @@ impl Live {
             None => "…".to_owned(),
         };
         let how = Some(How::of(source.description.fidelity()));
-        KindLine { label: "intensity", value, how, by: source.served_by.into(), failure }
+        KindLine { label: "intensity", value, how, by: named(source), failure }
     }
 
     fn forecast_line(&self) -> KindLine {
         let Some(forecast) = &self.forecast else { return Self::none("forecast") };
-        let hours = forecast.horizon.as_secs_f64() / 3600.0;
         KindLine {
             label: "forecast",
-            value: format!("{hours} h ahead"),
+            value: format!("{} h ahead", hours(forecast.horizon)),
             how: Some(How::of(forecast.fidelity)),
-            by: forecast.served_by.into(),
+            by: format!("({})", forecast.served_by),
             failure: None,
         }
     }
@@ -346,7 +360,7 @@ impl Live {
             .iter()
             .filter_map(|source| {
                 let failed = self.latest.get(&source.id)?.failed.as_ref()?;
-                Some(format!("{}: {failed}", source.served_by))
+                Some(format!("{}: {failed}", named(source)))
             })
             .collect();
         (!failures.is_empty()).then(|| failures.join("; "))
@@ -405,6 +419,19 @@ fn stale(value: String, failed: bool) -> String {
     if failed { format!("{value} (stale)") } else { value }
 }
 
+/// A power component and its watts, once read.
+type Component = (PowerDomain, Option<f64>);
+
+/// A source by what it reads, marked with its provider: `gpu (nvml)`,
+/// `DK-DK2 (electricity-maps)`.
+fn named(source: &Source) -> String {
+    let what = match &source.description {
+        SourceDescription::Power { domain, .. } => domain.to_string(),
+        SourceDescription::Intensity { location, .. } => presentation::grid(location),
+    };
+    format!("{what} ({})", source.served_by)
+}
+
 impl Latest {
     fn take(&mut self, kind: SampleKind, at: Timestamp, value: f64) {
         match kind {
@@ -435,12 +462,12 @@ pub(crate) mod tests {
         SourceId::new(ProviderId(provider), 0)
     }
 
-    pub(crate) fn power(provider: usize, by: &'static str, kind: SampleKind, fidelity: Fidelity) -> Source {
+    pub(crate) fn power(provider: usize, by: &'static str, domain: PowerDomain, kind: SampleKind, fidelity: Fidelity) -> Source {
         Source {
             id: id(provider),
             description: SourceDescription::Power {
                 device_name: by.into(),
-                domain: PowerDomain::Cpu,
+                domain,
                 scope: PowerScope::DeviceTotal,
                 sample_kind: kind,
                 fidelity,
@@ -493,8 +520,8 @@ pub(crate) mod tests {
         live.apply(Msg::Decided("static", Verdict::NotWanted));
         live.apply(Msg::Started {
             sources: vec![
-                power(1, "rapl", SampleKind::Total, Fidelity::Measured),
-                power(2, "nvml", SampleKind::Instant, Fidelity::Measured),
+                power(1, "rapl", PowerDomain::Cpu, SampleKind::Total, Fidelity::Measured),
+                power(2, "nvml", PowerDomain::Gpu, SampleKind::Instant, Fidelity::Measured),
                 intensity(3, "electricity-maps", Fidelity::Measured),
             ],
             forecast: Some(forecast()),
@@ -519,7 +546,7 @@ pub(crate) mod tests {
 
     /// AC/FE-77
     #[test]
-    fn each_kind_shows_its_value_how_and_provider() {
+    fn each_kind_shows_its_value_how_and_sources_marked_with_their_provider() {
         let mut live = probed();
         live.apply(readout(&[(1, 0, 1000.0), (2, 0, 150.0), (3, 0, 200.0)]));
         live.apply(readout(&[(1, 2, 1100.0), (2, 2, 160.0), (3, 2, 210.0)]));
@@ -529,20 +556,63 @@ pub(crate) mod tests {
             label: "power",
             value: "210.0 W".into(),
             how: Some(How::Live),
-            by: "rapl 50.0 W, nvml 160.0 W".into(),
+            by: "cpu 50.0 W (rapl) · gpu 160.0 W (nvml)".into(),
             failure: None,
         });
         assert_eq!(line("location").value, "DK-DK2");
-        assert_eq!(line("location").by, "ip-geolocation");
+        assert_eq!(line("location").by, "(ip-geolocation)");
         assert_eq!(line("intensity").value, "210 gCO2eq/kWh");
-        assert_eq!(line("intensity").by, "electricity-maps");
+        assert_eq!(line("intensity").by, "DK-DK2 (electricity-maps)");
         assert_eq!(line("forecast"), KindLine {
             label: "forecast",
             value: "24 h ahead".into(),
             how: Some(How::Modelled),
-            by: "projection".into(),
+            by: "(projection)".into(),
             failure: None,
         });
+    }
+
+    /// AC/FE-77
+    #[test]
+    fn power_names_each_component_once_grouped_under_its_provider() {
+        let source = |index, served_by, domain| Source {
+            id: SourceId::new(ProviderId(if served_by == "ioreport" { 1 } else { 2 }), index),
+            description: SourceDescription::Power {
+                device_name: "Apple M3".into(),
+                domain,
+                scope: PowerScope::DeviceTotal,
+                sample_kind: SampleKind::Instant,
+                fidelity: Fidelity::Measured,
+            },
+            served_by,
+        };
+        let mut live = Live::new(1.0);
+        live.apply(Msg::Started {
+            sources: vec![
+                source(0, "ioreport", PowerDomain::Cpu),
+                source(1, "ioreport", PowerDomain::Gpu),
+                source(2, "ioreport", PowerDomain::Gpu),
+                source(0, "macmon", PowerDomain::System),
+            ],
+            forecast: None,
+        });
+        let read = |provider, index, watts| (SourceId::new(ProviderId(provider), index), watts);
+        let readings = [read(1, 0, 20.0), read(1, 1, 5.0), read(1, 2, 3.0)];
+        let outcomes = readings.map(|(id, watts)| {
+            (id, Observation::Samples(vec![Sample::new(at(0), watts)]))
+        });
+        live.apply(Msg::Readout(Arc::new(HashMap::from(outcomes))));
+        let power = live.lines().into_iter().find(|line| line.label == "power").unwrap();
+        assert_eq!(power.by, "cpu 20.0 W, gpu 8.0 W (ioreport) · system … (macmon)");
+    }
+
+    #[test]
+    fn the_forecast_horizon_is_shown_in_rounded_hours() {
+        let mut live = Live::new(1.0);
+        let forecast = ForecastSource { horizon: Duration::from_secs_f64(86_342.768), ..forecast() };
+        live.apply(Msg::Started { sources: vec![], forecast: Some(forecast) });
+        let line = live.lines().into_iter().find(|line| line.label == "forecast").unwrap();
+        assert_eq!(line.value, "24 h ahead");
     }
 
     /// AC/FE-78
@@ -584,7 +654,7 @@ pub(crate) mod tests {
         live.apply(readout(&[(1, 2, 1100.0)]));
         let plain = live.snapshot(false);
         assert!(plain.starts_with("Emitting 60.0 gCO2eq/h right now"), "{plain}");
-        assert!(plain.contains("  intensity  200 gCO2eq/kWh       live      electricity-maps\n"), "{plain}");
+        assert!(plain.contains("  intensity  200 gCO2eq/kWh       live      DK-DK2 (electricity-maps)\n"), "{plain}");
         assert!(!plain.contains("powermetrics"), "candidates only with -v: {plain}");
         assert!(!plain.contains('\x1b'));
         let verbose = live.snapshot(true);
@@ -630,8 +700,8 @@ pub(crate) mod tests {
         live.apply(failed(3));
         let line = |live: &Live| live.lines().into_iter().find(|line| line.label == "intensity").unwrap();
         assert_eq!(line(&live).value, "200 gCO2eq/kWh (stale)");
-        assert_eq!(line(&live).failure.as_deref(), Some("electricity-maps: the read timed out"));
-        assert!(live.snapshot(false).contains("electricity-maps: the read timed out"), "{}", live.snapshot(false));
+        assert_eq!(line(&live).failure.as_deref(), Some("DK-DK2 (electricity-maps): the read timed out"));
+        assert!(live.snapshot(false).contains("DK-DK2 (electricity-maps): the read timed out"), "{}", live.snapshot(false));
         live.apply(readout(&[(3, 5, 210.0)]));
         assert_eq!(line(&live).value, "210 gCO2eq/kWh");
         assert_eq!(line(&live).failure, None);
@@ -644,8 +714,8 @@ pub(crate) mod tests {
         live.apply(failed(2));
         let power = live.lines().into_iter().find(|line| line.label == "power").unwrap();
         assert_eq!(power.value, "…");
-        assert_eq!(power.failure.as_deref(), Some("nvml: the read timed out"));
-        assert!(live.headline().contains("nvml: the read timed out"), "{}", live.headline());
+        assert_eq!(power.failure.as_deref(), Some("gpu (nvml): the read timed out"));
+        assert!(live.headline().contains("gpu (nvml): the read timed out"), "{}", live.headline());
     }
 
     #[test]

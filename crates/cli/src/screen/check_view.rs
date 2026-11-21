@@ -161,7 +161,7 @@ fn colour(how: How) -> Color {
 pub(crate) mod tests {
     use std::sync::mpsc;
 
-    use carbontracker::{Fidelity, SampleKind};
+    use carbontracker::{Fidelity, PowerDomain, SampleKind};
     use carbontracker_providers::Verdict;
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
@@ -189,7 +189,7 @@ pub(crate) mod tests {
         tx.send(Msg::Decided("electricity-maps", Verdict::Serving(vec![]))).unwrap();
         tx.send(Msg::Started {
             sources: vec![
-                power(2, "nvml", SampleKind::Instant, Fidelity::Measured),
+                power(2, "nvml", PowerDomain::Gpu, SampleKind::Instant, Fidelity::Measured),
                 intensity(3, "electricity-maps", Fidelity::Measured),
             ],
             forecast: Some(forecast()),
@@ -215,7 +215,8 @@ pub(crate) mod tests {
         assert!(screen.contains("Emitting 30.0 gCO2eq/h right now"), "{screen}");
         assert!(screen.contains("power     100.0 W"), "{screen}");
         assert!(screen.contains("intensity 300 gCO2eq/kWh"), "{screen}");
-        assert!(screen.contains("electricity-maps"), "{screen}");
+        assert!(screen.contains("gpu 100.0 W (nvml)"), "{screen}");
+        assert!(screen.contains("DK-DK2 (electricity-maps)"), "{screen}");
         assert!(!screen.contains("powermetrics"), "candidates only with -v: {screen}");
         tx.send(readout(&[(3, 5, 100.0)])).unwrap();
         assert!(draw(&mut view).contains("Emitting 10.0 gCO2eq/h right now"));
@@ -262,7 +263,7 @@ pub(crate) mod tests {
         let screen = draw(&mut view);
         assert!(screen.contains("electricity-maps is unavailable: zone DK-DK2: access denied"), "{screen}");
         assert!(screen.contains("carbontracker init"), "{screen}");
-        assert!(screen.contains("nvml: the read timed out"), "{screen}");
+        assert!(screen.contains("gpu (nvml): the read timed out"), "{screen}");
         assert!(screen.contains("(stale)"), "{screen}");
         let column = |label: &str| screen.lines().find(|line| line.starts_with(label)).unwrap().find(" live ");
         assert_eq!(column("power"), column("intensity"), "the stale value keeps the columns aligned: {screen}");
