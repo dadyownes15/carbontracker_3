@@ -14,9 +14,9 @@ use crate::domain::location::{Coordinates, CountryCode, Estimate, Location};
 use crate::ports::Outcome;
 use carbontracker::ProviderId;
 
-const INTENSITY: &str = include_str!("fixtures/neso/intensity.json");
+pub(super) const INTENSITY: &str = include_str!("fixtures/neso/intensity.json");
 const INTENSITY_PT24H: &str = include_str!("fixtures/neso/intensity_pt24h.json");
-const INTENSITY_FW48H: &str = include_str!("fixtures/neso/intensity_fw48h.json");
+pub(super) const INTENSITY_FW48H: &str = include_str!("fixtures/neso/intensity_fw48h.json");
 const REGIONAL: &str = include_str!("fixtures/neso/regional.json");
 const REGIONAL_FW48H: &str = include_str!("fixtures/neso/regional_fw48h.json");
 
@@ -71,7 +71,7 @@ async fn serve_region(server: &MockServer, id: u8) {
 
 /// `answer` with every point moved to start this half-hour, as the live API
 /// answers a forecast asked for from now.
-fn from_this_half_hour(answer: &str) -> String {
+pub(super) fn from_this_half_hour(answer: &str) -> String {
     let mut answer: serde_json::Value = serde_json::from_str(answer).unwrap();
     let start = Utc::now().duration_trunc(TimeDelta::minutes(30)).unwrap();
     let points = match answer["data"].get_mut("data") {

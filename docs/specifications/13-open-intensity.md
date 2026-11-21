@@ -5,7 +5,7 @@ publish it openly, so a run on those grids measures its intensity without an
 Electricity Maps key. Each open source is an intensity candidate in the
 default registry ([03](03-providers.md)), under the same rules as
 Electricity Maps: it reads the location in its own terms or declines, and it
-describes the grid it actually measures. <!-- AC/OPEN-1 unbuilt -->
+describes the grid it actually measures. <!-- AC/OPEN-1 -->
 
 The chains of [03](03-providers.md) (AC/PROV-7, AC/PROV-8) place them; this
 document says what each one reads and when.
@@ -73,7 +73,7 @@ publishes no other figure for a region, not even afterwards. <!-- AC/OPEN-38 -->
 
 **The candidate's name in the resolution says the publisher's basis**, e.g.
 `energinet (direct CO2)`, since public sources differ in what they count and
-Electricity Maps is asked for lifecycle figures. <!-- AC/OPEN-18 unbuilt -->
+Electricity Maps is asked for lifecycle figures. <!-- AC/OPEN-18 -->
 
 | Candidate | Cooldown |
 |---|---|
@@ -86,37 +86,37 @@ Electricity Maps is asked for lifecycle figures. <!-- AC/OPEN-18 unbuilt -->
 ## The chains
 
 **Intensity:** Electricity Maps → `energinet` → `neso` → `energy-charts` →
-country average → global average. <!-- AC/OPEN-24 unbuilt -->
+country average → global average. <!-- AC/OPEN-24 -->
 
 **Electricity Maps stays first.** A user who gives a key has chosen it, and
 its lifecycle figures match the country table below it. With no key it
-declines, and the open sources answer. <!-- AC/OPEN-25 unbuilt -->
+declines, and the open sources answer. <!-- AC/OPEN-25 -->
 
 **A grid's own operator comes before an aggregator.** Denmark is read from
-`energinet`, not `energy-charts`. <!-- AC/OPEN-26 unbuilt -->
+`energinet`, not `energy-charts`. <!-- AC/OPEN-26 -->
 
 **Forecast:** Electricity Maps forecast → the forecast of the open source that
 won intensity, for the same grid → the current intensity held flat. A
 forecast never comes from a publisher other than the one billed, so the curve
-and the bill describe one grid on one basis. <!-- AC/OPEN-27 unbuilt -->
+and the bill describe one grid on one basis. <!-- AC/OPEN-27 -->
 
 | `Forecaster` from an open source | |
 |---|---|
-| `fidelity()` | `Measured`, as for Electricity Maps (AC/PROV-18) | <!-- AC/OPEN-28 unbuilt -->
-| `served_by()` | The candidate, e.g. `neso` | <!-- AC/OPEN-29 unbuilt -->
+| `fidelity()` | `Measured`, as for Electricity Maps (AC/PROV-18) | <!-- AC/OPEN-28 -->
+| `served_by()` | The forecast candidate, e.g. `neso-forecast` | <!-- AC/OPEN-29 -->
 | `horizon()` | What the publisher reaches, which can be shorter than asked for | <!-- AC/OPEN-30 -->
 
 ## What it never does
 
 **It never asks Electricity Maps for a grid an open source served.** Open
-sources do not spend a key's allowance. <!-- AC/OPEN-32 unbuilt -->
+sources do not spend a key's allowance. <!-- AC/OPEN-32 -->
 
 **It never mixes publishers within one grid**: one run's intensity readouts
-and its forecast come from one publisher. <!-- AC/OPEN-33 unbuilt -->
+and its forecast come from one publisher. <!-- AC/OPEN-33 -->
 
-**It never converts a publisher's figure** from one basis to another. <!-- AC/OPEN-34 unbuilt -->
+**It never converts a publisher's figure** from one basis to another. <!-- AC/OPEN-34 -->
 
-**Pinned intensity contacts none of them** (AC/PROV-15). <!-- AC/OPEN-35 unbuilt -->
+**Pinned intensity contacts none of them** (AC/PROV-15). <!-- AC/OPEN-35 -->
 
 ## Testing
 
