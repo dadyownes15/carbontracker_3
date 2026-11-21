@@ -18,7 +18,7 @@ use carbontracker_providers::{
     config_file, process_tree, Coordinates, CountryCode, GridConfig, Measure, Pinned, ProbeConfig,
 };
 use carbontracker_run::{
-    presentation, standard_sinks, LatestForecast, Console, Folder, Layout, Outcome, Predictor, RunConfig,
+    check_project, presentation, standard_sinks, LatestForecast, Console, Folder, Layout, Outcome, Predictor, RunConfig,
     PowerDomain, RunHandle, SourceSelection, SpanId, Verbosity, Work,
 };
 use pyo3::exceptions::{PyOSError, PyRuntimeError, PyValueError};
@@ -41,7 +41,8 @@ pub struct Tracker {
     epochs: Arc<Epochs>,
     /// The longest an ended epoch takes to settle: the next readout, and its fetch.
     settle_within: Duration,
-    config_warning: Option<String>,
+    /// Warnings to print once the run has started.
+    warnings: Vec<String>,
     /// The power sources being measured, as the engine's catalog reports them.
     sources: Vec<(SourceId, SourceDescription)>,
     location: Option<String>,
@@ -64,7 +65,7 @@ impl Tracker {
     #[new]
     #[pyo3(signature = (
         *, zone, country, coordinates, global_, power, cpu_power, gpu_power, intensity, components,
-        interval, pue, api_keys, devices_by_pid, log_dir, log_file_prefix, epochs, epochs_before_pred, monitor_epochs,
+        interval, pue, api_keys, devices_by_pid, log_dir, log_file_prefix, project, name, epochs, epochs_before_pred, monitor_epochs,
         verbose, decimal_precision, interpretable, profiler, write,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -85,6 +86,8 @@ impl Tracker {
         devices_by_pid: bool,
         log_dir: Option<PathBuf>,
         log_file_prefix: &str,
+        project: Option<String>,
+        name: Option<String>,
         epochs: Option<usize>,
         epochs_before_pred: i64,
         monitor_epochs: u64,
@@ -100,7 +103,10 @@ impl Tracker {
         } else {
             config_file::keys(api_keys.unwrap_or_default()).map_err(|error| invalid(format!("api_keys: {error}")))?
         };
-        let config_warning = readable.map(|path| presentation::config_readable(&path));
+        if let Some(project) = &project {
+            check_project(project).map_err(invalid)?;
+        }
+        let mut warnings: Vec<String> = readable.map(|path| presentation::config_readable(&path)).into_iter().collect();
         if power.is_some() && (cpu_power.is_some() || gpu_power.is_some()) {
             return Err(invalid("power is the whole machine's draw, so it can't be given with cpu_power or gpu_power"));
         }
@@ -138,6 +144,11 @@ impl Tracker {
             .map(|dir| Folder::claim(&dir, Some(log_file_prefix)))
             .transpose()
             .map_err(|error| PyOSError::new_err(format!("cannot write logs: {error}")))?;
+        if let (Some(folder), Some(project)) = (&folder, &project)
+            && let Err(error) = folder.link_to_project(project)
+        {
+            warnings.push(presentation::warning(&error));
+        }
         let console = Console {
             out: Box::new(PyWriter::new(write)),
             // A profiler prints its own table.
@@ -159,7 +170,7 @@ impl Tracker {
         let started_at = convert::seconds(&chrono::Utc::now());
         // The writer takes the GIL to print, even while this waits.
         let run = py
-            .detach(|| carbontracker_run::start(RunConfig { probe, tracker, frontend: "python", sinks }, projected))
+            .detach(|| carbontracker_run::start(RunConfig { probe, tracker, frontend: "python", project, name, command: std::env::args().collect(), sinks }, projected))
             .map_err(stopped)?;
         let started = run.started();
         let location = started.header.config.location.as_ref().map(presentation::location);
@@ -185,16 +196,17 @@ impl Tracker {
             fetch_timeout,
             epochs: settled_epochs,
             settle_within,
-            config_warning,
+            warnings,
             sources,
             location,
             started_at,
         })
     }
 
-    /// A warning about the config file, if others can read it.
-    fn config_warning(&self) -> Option<String> {
-        self.config_warning.clone()
+    /// Warnings to print once the run has started: a config file others
+    /// can read, a run its project's folder could not link.
+    fn warnings(&self) -> Vec<String> {
+        self.warnings.clone()
     }
 
     /// The power sources being measured, by id.

@@ -14,34 +14,34 @@ document says what each one reads and when.
 
 | Candidate | Publisher | Grids | Published every | Forecast |
 |---|---|---|---|---|
-| `energinet` | Energinet, Energi Data Service (`CO2Emis`, `CO2EmisProg`) | `DK-DK1`, `DK-DK2` | 5 min | Yes, to the end of the next day | <!-- AC/OPEN-2 unbuilt -->
-| `neso` | NESO, Carbon Intensity API | `GB` (Great Britain, national), and its regions `GB-NESO-1` to `GB-NESO-17` | 30 min | Yes, 48 h | <!-- AC/OPEN-3 unbuilt -->
-| `energy-charts` | Fraunhofer ISE, Energy-Charts (`co2eq`) | The countries it publishes `co2eq` for | 15 min | Yes | <!-- AC/OPEN-4 unbuilt -->
+| `energinet` | Energinet, Energi Data Service (`CO2Emis`, `CO2EmisProg`) | `DK-DK1`, `DK-DK2` | 5 min | Yes, to the end of the next day | <!-- AC/OPEN-2 -->
+| `neso` | NESO, Carbon Intensity API | `GB` (Great Britain, national), and its regions `GB-NESO-1` to `GB-NESO-17` | 30 min | Yes, 48 h | <!-- AC/OPEN-3 -->
+| `energy-charts` | Fraunhofer ISE, Energy-Charts (`co2eq`) | The countries it publishes `co2eq` for | 15 min | Yes | <!-- AC/OPEN-4 -->
 
 **A source serves only the grids its table row names.** A location outside
-them is declined without a request. <!-- AC/OPEN-6 unbuilt -->
+them is declined without a request. <!-- AC/OPEN-6 -->
 
 **No open source takes a key, and none sends anything that identifies the
 user**: no account, and no location finer than the grid it asks for, apart
-from the outward postcode `neso` sends to find a region. <!-- AC/OPEN-7 unbuilt -->
+from the outward postcode `neso` sends to find a region. <!-- AC/OPEN-7 -->
 
 ## Reading the location
 
 | Location | `energinet` | `neso` | `energy-charts` |
 |---|---|---|---|
-| Stated zone | `DK-DK1`, `DK-DK2` | `GB`, or a region `GB-NESO-<id>` | A country code it publishes | <!-- AC/OPEN-8 unbuilt -->
-| Stated country | Declined: Denmark is two grids | `GB` | Served | <!-- AC/OPEN-9 unbuilt -->
-| Coordinates, stated or estimated | `DK-DK2` east of the Great Belt and on Bornholm, `DK-DK1` west of it | `GB`, national, unless in Northern Ireland | The country they lie in | <!-- AC/OPEN-10 unbuilt -->
+| Stated zone | `DK-DK1`, `DK-DK2` | `GB`, or a region `GB-NESO-<id>` | A country code it publishes | <!-- AC/OPEN-8 -->
+| Stated country | Declined: Denmark is two grids | `GB` | Served | <!-- AC/OPEN-9 -->
+| Coordinates, stated or estimated | `DK-DK2` east of the Great Belt and on Bornholm, `DK-DK1` west of it | `GB`, national, unless in Northern Ireland | The country they lie in | <!-- AC/OPEN-10 -->
 | Estimated, with a postcode | As for coordinates | The region NESO gives for the outward postcode | The country | <!-- AC/OPEN-39 unbuilt -->
 
 **A zone finer than a source publishes falls back to the zone's country**, as
 Electricity Maps does, and the description says the country, not the zone
-asked for: `SE-SE3` read from `energy-charts` is described as `SE`. <!-- AC/OPEN-11 unbuilt -->
+asked for: `SE-SE3` read from `energy-charts` is described as `SE`. <!-- AC/OPEN-11 -->
 
 **A NESO region is stated by NESO's region id**: 1 to 14 are the
 distribution regions, from `GB-NESO-1` North Scotland to `GB-NESO-14` South
 East England, and 15 to 17 are England, Scotland and Wales. An id outside 1
-to 17 is declined, saying which. <!-- AC/OPEN-37 unbuilt -->
+to 17 is declined, saying which. <!-- AC/OPEN-37 -->
 
 **An estimated location carries the postcode the geolocation service gives**,
 in `Estimate`, when it gives one. <!-- AC/OPEN-40 unbuilt -->
@@ -59,17 +59,17 @@ reads `GB`, national. Coordinates are never sent. <!-- AC/OPEN-41 unbuilt -->
 **Each read takes the latest published figure, stamped at the start of the
 interval it covers.** An answer with the same stamp as the last is
 `Unchanged`. The probe's confirming fetch answers the first read, as for
-Electricity Maps (AC/PROV-13). <!-- AC/OPEN-14 unbuilt -->
+Electricity Maps (AC/PROV-13). <!-- AC/OPEN-14 -->
 
 **A figure is the publisher's latest for an interval that has begun, never
 one for an interval still to come.** `energinet` reads `CO2Emis`;
 `energy-charts` the latest interval with a `co2eq`; `neso` national the
-latest half-hour with an `actual`. <!-- AC/OPEN-15 unbuilt -->
+latest half-hour with an `actual`. <!-- AC/OPEN-15 -->
 
 **A NESO region is read from the current half-hour's `forecast`**, since NESO
-publishes no other figure for a region, not even afterwards. <!-- AC/OPEN-38 unbuilt -->
+publishes no other figure for a region, not even afterwards. <!-- AC/OPEN-38 -->
 
-**Every open source is `Measured` and `Held`.** <!-- AC/OPEN-17 unbuilt -->
+**Every open source is `Measured` and `Held`.** <!-- AC/OPEN-17 -->
 
 **The candidate's name in the resolution says the publisher's basis**, e.g.
 `energinet (direct CO2)`, since public sources differ in what they count and
@@ -77,11 +77,11 @@ Electricity Maps is asked for lifecycle figures. <!-- AC/OPEN-18 unbuilt -->
 
 | Candidate | Cooldown |
 |---|---|
-| `energinet` | 1 min | <!-- AC/OPEN-19 unbuilt -->
-| `neso` | 5 min | <!-- AC/OPEN-20 unbuilt -->
-| `energy-charts` | 5 min | <!-- AC/OPEN-21 unbuilt -->
+| `energinet` | 1 min | <!-- AC/OPEN-19 -->
+| `neso` | 5 min | <!-- AC/OPEN-20 -->
+| `energy-charts` | 5 min | <!-- AC/OPEN-21 -->
 
-**A refusal for asking too often is `RateLimited`.** <!-- AC/OPEN-23 unbuilt -->
+**A refusal for asking too often is `RateLimited`.** <!-- AC/OPEN-23 -->
 
 ## The chains
 
@@ -104,7 +104,7 @@ and the bill describe one grid on one basis. <!-- AC/OPEN-27 unbuilt -->
 |---|---|
 | `fidelity()` | `Measured`, as for Electricity Maps (AC/PROV-18) | <!-- AC/OPEN-28 unbuilt -->
 | `served_by()` | The candidate, e.g. `neso` | <!-- AC/OPEN-29 unbuilt -->
-| `horizon()` | What the publisher reaches, which can be shorter than asked for | <!-- AC/OPEN-30 unbuilt -->
+| `horizon()` | What the publisher reaches, which can be shorter than asked for | <!-- AC/OPEN-30 -->
 
 ## What it never does
 

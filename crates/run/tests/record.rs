@@ -153,6 +153,8 @@ fn python_monitored() -> String {
             monitor: 2,
             before_prediction: 1,
         }),
+        project: None,
+        name: None,
     };
     let out = Shared::default();
     let mut clock = 0;

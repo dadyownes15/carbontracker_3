@@ -41,7 +41,9 @@ where
         Action::Check => commands::check(&args),
         Action::Init { what: None } => commands::init(&args),
         Action::Init { what: Some(InitWhat::Slurm { script }) } => commands::init_slurm(&args, script.as_deref()),
-        Action::Report { spans, csv, output, paths } => commands::report(spans, csv, output, &paths),
+        Action::Report { spans, csv, output, project, paths } => {
+            commands::report(spans, csv, output, project.as_deref(), paths)
+        }
         Action::Run(command) => commands::track(&args, &command),
     };
     outcome.unwrap_or_else(|message| fail(&message, 2))

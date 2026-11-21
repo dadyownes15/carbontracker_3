@@ -1,0 +1,31 @@
+{
+  "data": [
+    {
+      "from": "2026-11-19T22:30Z",
+      "to": "2026-11-19T23:00Z",
+      "intensity": {
+        "forecast": 172,
+        "actual": 167,
+        "index": "moderate"
+      }
+    },
+    {
+      "from": "2026-11-19T23:00Z",
+      "to": "2026-11-19T23:30Z",
+      "intensity": {
+        "forecast": 164,
+        "actual": 168,
+        "index": "moderate"
+      }
+    },
+    {
+      "from": "2026-11-19T23:30Z",
+      "to": "2026-11-20T00:00Z",
+      "intensity": {
+        "forecast": 166,
+        "actual": null,
+        "index": "moderate"
+      }
+    }
+  ]
+}

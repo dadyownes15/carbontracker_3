@@ -6,11 +6,11 @@ from reaching the engine or a provider any other way. The same binary ships
 with the Python package ([10](10-python.md)).
 
 ```
-carbontracker [OPTIONS] <COMMAND>...         track a whole command
+carbontracker [OPTIONS] [--project NAME] [--name TEXT] <COMMAND>...   track a whole command
 carbontracker check [OPTIONS]                show what would be measured
 carbontracker init                           save an API key (a menu on a terminal)
 carbontracker init slurm [SCRIPT]            run a Slurm script under carbontracker
-carbontracker report [--spans] [--csv [-o FILE]] <PATH>...   sum the runs recorded
+carbontracker report [--spans] [--csv [-o FILE]] [--project NAME] [PATH]...   sum the runs recorded
 ```
 
 ## Tracking a command
@@ -28,7 +28,7 @@ run. <!-- AC/FE-59 -->
 | is not found / cannot be run | `127` / `126`, naming the program on stderr | <!-- AC/FE-30 -->
 
 **A failure to finish the session is reported on stderr and never changes the
-exit code.** Tracking never decides how the command went. <!-- AC/FE-31 untested -->
+exit code.** Tracking never decides how the command went. <!-- AC/FE-31 -->
 
 **Ctrl-C reaches the command, not carbontracker.** carbontracker stays to
 print the closing block and finish the record, then exits `130`. <!-- AC/FE-32 -->
@@ -113,7 +113,7 @@ equals in km by car, and the run's folder when there is one. <!-- AC/FE-45 -->
 
 **`--verbose` adds every probe step, event and readout**, each with its time.
 Without it, a run prints only what is measured, warnings, errors and the
-closing block. <!-- AC/FE-46 -->
+closing block; what each verbosity prints is [12](12-output.md). <!-- AC/FE-46 -->
 
 ## The run folder
 
@@ -124,7 +124,7 @@ time is local, as a user browsing the folder reads it. The record is
 [05](05-record-v1.md). <!-- AC/FE-47 -->
 
 **`output.log` holds what the console printed at normal verbosity**, whether
-or not `--verbose` was given. <!-- AC/FE-48 -->
+or not `--verbose` was given ([12](12-output.md)). <!-- AC/FE-48 -->
 
 **Runs started together in one directory never share a folder.** <!-- AC/FE-49 -->
 
@@ -175,6 +175,13 @@ not be reached or asked, a new key would not help, so it does not. <!-- AC/FE-61
 rows. <!-- AC/FE-60 -->
 
 **A key is shown only by its last four characters**, never whole. <!-- AC/FE-53 -->
+
+**No message prints a key whole**, from any of the places a key comes from:
+`--api-keys`, `CARBONTRACKER_EM_KEY`, the config file, or `init`'s prompt. An
+error about a key names what is wrong with it and repeats none of it. <!-- AC/FE-84 -->
+
+**No file but the config file holds a key.** The run's record names the
+command with each `--api-keys` value replaced by `…`. <!-- AC/FE-85 -->
 
 **`check` writes no file and runs no command.** The view reads the sources
 for as long as it is open, and nothing else. <!-- AC/FE-54 -->
@@ -279,6 +286,8 @@ run, the script's argv. The table names the program by its file name; the CSV
 keeps it whole. The table's times are UTC, and its header says so. <!-- AC/FE-63 -->
 
 **A path that does not exist exits 2, naming it.** <!-- AC/FE-58 -->
+
+`--project` and `--name`, on a tracked command and on `report`, are [14](14-projects.md)'s.
 
 ## Why
 

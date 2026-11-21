@@ -216,7 +216,7 @@ fn read_report_finds_ct_files_in_folders_once_each() {
     std::fs::write(run.join("output.log"), "not a record").unwrap();
 
     let paths = [root.path().to_path_buf(), run.join("run-a1b2c3d4.ct")];
-    let report = read_report(&paths).unwrap();
+    let report = read_report(&paths, None).unwrap();
     assert_eq!(report.runs.len(), 1);
     assert!(report.unreadable.is_empty());
 }
@@ -224,7 +224,7 @@ fn read_report_finds_ct_files_in_folders_once_each() {
 /// AC/FE-58
 #[test]
 fn read_report_fails_on_a_path_that_does_not_exist() {
-    let error = read_report(&[PathBuf::from("/no/such/folder")]).unwrap_err();
+    let error = read_report(&[PathBuf::from("/no/such/folder")], None).unwrap_err();
     assert!(error.to_string().contains("/no/such/folder"), "{error}");
 }
 
@@ -238,9 +238,9 @@ fn the_runs_csv_has_one_row_per_run_at_full_precision() {
     let crashed = Lines::started("2026-10-26T10:00:00Z", "python train.py");
     let csv = runs_csv(&report(&[("a.ct", complete.text()), ("b.ct", crashed.text())]));
     let lines: Vec<_> = csv.lines().collect();
-    assert_eq!(lines[0], "file,started,frontend,command,ended,code,signal,duration_s,energy_kwh,emissions_g");
-    assert_eq!(lines[1], "a.ct,2026-10-25T10:00:00+00:00,cli,\"python train.py --tags a,b\",exited,0,,3600.5,0.123456789012,");
-    assert_eq!(lines[2], "b.ct,2026-10-26T10:00:00+00:00,cli,python train.py,,,,,,");
+    assert_eq!(lines[0], "file,started,frontend,project,name,command,ended,code,signal,duration_s,energy_kwh,emissions_g");
+    assert_eq!(lines[1], "a.ct,2026-10-25T10:00:00+00:00,cli,,,\"python train.py --tags a,b\",exited,0,,3600.5,0.123456789012,");
+    assert_eq!(lines[2], "b.ct,2026-10-26T10:00:00+00:00,cli,,,python train.py,,,,,,");
     assert_eq!(lines.len(), 3, "no total row");
 }
 
@@ -277,7 +277,7 @@ fn the_table_and_the_csv_show_the_tracked_command_never_the_wrappers_argv() {
     assert!(rows.iter().all(|row| row.contains("  python") && !row.contains("/")), "the program by its name: {table}");
 
     let csv = runs_csv(&report);
-    let commands: Vec<_> = csv.lines().skip(1).map(|line| line.split(',').nth(3).unwrap()).collect();
+    let commands: Vec<_> = csv.lines().skip(1).map(|line| line.split(',').nth(5).unwrap()).collect();
     assert_eq!(commands, ["/usr/bin/python3 train.py", "/opt/venv/bin/python train.py"]);
 }
 

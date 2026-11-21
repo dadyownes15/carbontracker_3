@@ -57,6 +57,12 @@ pub struct Header {
     pub config: Config,
     /// `None` if the run has no epochs.
     pub epochs: Option<Epochs>,
+    /// The project the run belongs to, e.g. `saintslab/codeq`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    /// The run's name, for people.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -67,6 +73,13 @@ pub struct Config {
     pub components: Option<Vec<String>>,
     /// The grid location, stated or estimated; `None` if unknown.
     pub location: Option<Location>,
+}
+
+impl Config {
+    /// Whether the user asked for the world-average grid.
+    pub fn global(&self) -> bool {
+        self.location == Some(Location::Stated(Grid::Global))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

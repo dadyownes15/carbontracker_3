@@ -1,11 +1,12 @@
 //! Text printed before and after a run: the [sources] and [ready] lines, the
 //! [consumption] block (the CLI's [summary], or the classic block followed by
-//! [grid_line] and [logs_line] in Python), and [notes].
+//! [grid_line] and [logs_line] in Python), and the warnings for sources
+//! nobody asked to estimate ([start_warnings]).
 
 use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
-use carbontracker::{CatalogReport, SessionReport, SourceDescription, SourceId, Usage};
+use carbontracker::{CatalogReport, Fidelity, SessionReport, SourceDescription, SourceId, Usage};
 use carbontracker_providers::Location;
 
 use super::{caveat, clock, equivalents, grid, significant};
@@ -296,22 +297,42 @@ pub fn assumed_grid(location: Option<&Location>, keyed: bool) -> String {
     format!("the world-average grid is assumed for {location}: {key}, and {table}")
 }
 
-/// A note per estimated source, then a warning per report warning.
-pub fn notes(report: &SessionReport) -> Vec<String> {
-    let mut sources: Vec<_> = report.sources.iter().collect();
-    sources.sort_by_key(|(id, _)| **id);
-    let caveats = sources
+/// The warnings printed at start: one per source that is modelled or assumed
+/// and was not asked for, in source order. A stated figure warns nothing.
+/// `assumed` is the warning for the world-average grid, such as
+/// [assumed_grid]; `None` when the user asked for it.
+pub fn start_warnings<'a>(
+    sources: impl IntoIterator<Item = (SourceId, &'a SourceDescription)>,
+    assumed: Option<&str>,
+) -> Vec<String> {
+    let mut sources: Vec<_> = sources.into_iter().collect();
+    sources.sort_by_key(|(id, _)| *id);
+    sources
         .into_iter()
-        .filter_map(|(_, source)| caveat(source))
-        .map(|text| note(&text));
-    caveats
-        .chain(
-            report
-                .warnings
-                .iter()
-                .map(|text| warning(&text.to_string())),
-        )
+        .filter_map(|(_, source)| match source {
+            SourceDescription::Intensity {
+                fidelity: Fidelity::Assumed,
+                ..
+            } => assumed.map(str::to_owned),
+            source => caveat(source),
+        })
         .collect()
+}
+
+/// A source that could not be read, and the provider behind it.
+pub fn failed_read(source: &str, provider: Option<&str>, error: &str) -> String {
+    let from = provider.map(|provider| format!(" from {provider}")).unwrap_or_default();
+    format!("{source}{from} was not read: {error}; its last value is used")
+}
+
+/// A command on a span that the engine did not accept.
+pub fn refused(span: &str, error: &str) -> String {
+    format!("a command on {span} was refused: {error}")
+}
+
+/// A span report's warning, naming the span.
+pub fn span_warning(span: &str, warning: &str) -> String {
+    format!("{span}: {warning}")
 }
 
 /// Formats a note.
@@ -544,12 +565,26 @@ mod tests {
         assert_eq!(logs_line("logs/x"), "logs in logs/x");
     }
 
+    /// AC/OUT-22, AC/OUT-32
     #[test]
-    fn estimates_are_noted() {
+    fn a_modelled_cpu_and_a_world_average_nobody_asked_for_are_each_named() {
+        let world = SourceDescription::Intensity {
+            location: GridLocation::Global,
+            fidelity: Fidelity::Assumed,
+        };
+        let cpu = power("Intel Xeon", PowerDomain::Cpu, Fidelity::Modelled);
+        let sources = catalog(vec![cpu, world.clone()]).sources;
         assert_eq!(
-            notes(&session()),
-            ["note: Intel Xeon is modelled, not measured: treat its energy as an estimate"]
+            start_warnings(sources.iter().map(|(id, source)| (*id, source)), Some("the grid is assumed")),
+            [
+                "Intel Xeon is modelled, not measured: treat its energy as an estimate",
+                "the grid is assumed",
+            ]
         );
+
+        let stated = power("static", PowerDomain::Cpu, Fidelity::Stated);
+        let asked = catalog(vec![stated, world]).sources;
+        assert!(start_warnings(asked.iter().map(|(id, source)| (*id, source)), None).is_empty());
     }
 
     /// AC/RUN-23

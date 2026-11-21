@@ -38,6 +38,7 @@ keyword-only. <!-- AC/PY-2 -->
 | `power`, `cpu_power`, `gpu_power` | A stated draw in watts | measured |
 | `intensity` | A fixed grid intensity in gCO2eq/kWh | fetched |
 | `pue` | Power usage effectiveness | 1.58 |
+| `project`, `name` | The run's project and name ([14](14-projects.md)) | none |
 
 **Every invalid or conflicting argument raises `ValueError` before anything is
 probed or started, whatever `ignore_errors` says.** Refused: two locations; a
@@ -239,7 +240,7 @@ session**, on plain and `async` functions; the arguments are
 reaches a notebook cell and keeps progress bars whole. <!-- AC/PY-32 -->
 
 **`verbose=0` prints only warnings and errors**; any `verbose` of 1 or more
-prints everything, as 1. <!-- AC/PY-33 -->
+prints everything, as 1. What each prints is [12](12-output.md). <!-- AC/PY-33 -->
 
 **`log_dir=None` writes nothing.** <!-- AC/PY-34 -->
 
@@ -248,14 +249,15 @@ prints everything, as 1. <!-- AC/PY-33 -->
 `log_file_prefix`), holding `run-<id>.ct` and `output.log`. Trackers started
 together never share one. <!-- AC/PY-35 -->
 
-**`output.log` holds the whole output, whatever `verbose` says.** <!-- AC/PY-36 -->
+**`output.log` holds the whole output, whatever `verbose` says**, as
+[12](12-output.md) states. <!-- AC/PY-36 -->
 
 **A `log_dir` that cannot be written is a tracking failure**, raised as
 `TrackingError` unless `ignore_errors`. <!-- AC/PY-37 -->
 
 ## Reading runs back
 
-**`report(*paths)` returns the `Report` that `carbontracker report` prints**:
+**`report(*paths, project=None)` returns the `Report` that `carbontracker report` prints**:
 its `runs`, `spans`, `total`, `incomplete` and `unreadable`, by the same rules
 as [06](06-cli.md). <!-- AC/PY-38 -->
 

@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use carbontracker::{
-    ConfigError, Fidelity, GridLocation, SessionReport, SourceDescription, SourceSelection, SpanId, Subscription,
+    ConfigError, SessionReport, SourceSelection, SpanId, Subscription,
     TrackerConfig, Work, TrackerError, TrackerHandle, TrackerQuery, WeakTrackerHandle,
 };
 use carbontracker_providers::{
@@ -30,6 +30,13 @@ pub struct RunConfig {
     pub tracker: TrackerConfig,
     /// The record's `frontend`: `cli`, `python`, `slurm`.
     pub frontend: &'static str,
+    /// The project the run belongs to; checked with [check_project](crate::check_project).
+    pub project: Option<String>,
+    /// The run's name, for people.
+    pub name: Option<String>,
+    /// The command line the record names, as the frontend wants it shown:
+    /// with no key in it.
+    pub command: Vec<String>,
     /// Everything the run writes to, in this order.
     pub sinks: Vec<Box<dyn Sink>>,
 }
@@ -68,10 +75,13 @@ pub fn start<P: Projection>(
         probe,
         tracker,
         frontend,
+        project,
+        name,
+        command,
         sinks,
     } = config;
     let writer = WriterHandle::new(sinks);
-    match begin(probe, tracker, frontend, &writer) {
+    match begin(probe, tracker, frontend, project, name, command, &writer) {
         Ok((engine, forecaster, mut started, events, warnings)) => {
             let projection = projection(&engine.downgrade(), &forecaster);
             projection.describe(&mut started.header);
@@ -109,11 +119,13 @@ fn begin(
     probe: ProbeConfig,
     tracker: TrackerConfig,
     frontend: &'static str,
+    project: Option<String>,
+    name: Option<String>,
+    command: Vec<String>,
     writer: &WriterHandle,
 ) -> Result<(TrackerHandle, Forecaster, Started, Subscription, Vec<String>), RunError> {
     let components = encode::components(&probe.measure);
     let keyed = probe.grid.api_keys.contains_key(&KeyedService::ElectricityMaps);
-    let global = matches!(probe.grid.location, Some(GridLocation::Global));
     let registry = ProviderRegistry::new(probe)?;
     // Some probes are network calls: a runtime that lives only for the probe.
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -126,7 +138,7 @@ fn begin(
         format: record::FORMAT,
         carbontracker: VERSION.to_owned(),
         frontend: frontend.to_owned(),
-        command: std::env::args().collect(),
+        command,
         config: record::Config {
             interval_s: tracker.readout_interval.as_secs_f64(),
             pue: tracker.pue.get(),
@@ -134,14 +146,11 @@ fn begin(
             location: encode::location(resolution.location()),
         },
         epochs: None,
+        project,
+        name,
     };
-    let assumed = resolution
-        .sources()
-        .any(|(_, source)| matches!(source, SourceDescription::Intensity { fidelity: Fidelity::Assumed, .. }));
-    let warnings = (assumed && !global)
-        .then(|| presentation::assumed_grid(resolution.location(), keyed))
-        .into_iter()
-        .collect();
+    let assumed = (!header.config.global()).then(|| presentation::assumed_grid(resolution.location(), keyed));
+    let warnings = presentation::start_warnings(resolution.sources(), assumed.as_deref());
     let probe = encode::probe(&resolution);
     let served_by = resolution
         .sources()

@@ -101,6 +101,14 @@ pub struct Args {
     /// environment and the config file.
     #[arg(long, alias = "api_keys", global = true, value_name = "KEYS", help_heading = "Keys")]
     api_keys: Option<String>,
+
+    /// The project the run belongs to, e.g. saintslab/codeq; `report --project` finds its runs.
+    #[arg(long, value_name = "NAME", value_parser = project, help_heading = "Naming")]
+    project: Option<String>,
+
+    /// The run's name, shown by `report` instead of the command.
+    #[arg(long, value_name = "TEXT", value_parser = run_name, help_heading = "Naming")]
+    name: Option<String>,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -123,8 +131,12 @@ pub enum Action {
         /// Save the CSV to FILE instead.
         #[arg(short, long, value_name = "FILE", requires = "csv")]
         output: Option<PathBuf>,
+        /// Keep only this project's runs, and those of the projects below it; with no PATH, read
+        /// the runs linked from the project's folder on this machine.
+        #[arg(long, value_name = "NAME")]
+        project: Option<String>,
         /// Record files, or folders to search for them.
-        #[arg(value_name = "PATH", required = true)]
+        #[arg(value_name = "PATH", required_unless_present = "project")]
         paths: Vec<PathBuf>,
     },
     #[command(external_subcommand)]
@@ -234,6 +246,16 @@ impl Args {
     }
 
     /// Where to write a run's files; `None` with `--no-log`.
+    /// The project the run belongs to.
+    pub fn project(&self) -> Option<&str> {
+        self.project.as_deref()
+    }
+
+    /// The run's name.
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
     pub fn log_dir(&self) -> Option<&Path> {
         (!self.no_log).then_some(self.log_dir.as_path())
     }
@@ -292,6 +314,17 @@ pub fn span_name(command: &[OsString]) -> String {
     command.iter().map(|part| part.to_string_lossy()).collect::<Vec<_>>().join(" ")
 }
 
+fn project(text: &str) -> Result<String, String> {
+    carbontracker_run::check_project(text).map(|()| text.to_owned())
+}
+
+fn run_name(text: &str) -> Result<String, String> {
+    if text.trim().is_empty() || text.chars().any(char::is_control) {
+        return Err("expected a name with something other than spaces in it and no control character".to_owned());
+    }
+    Ok(text.to_owned())
+}
+
 fn zone(text: &str) -> Result<GridLocation, String> {
     let zone = text.trim();
     if zone.is_empty() {
@@ -326,12 +359,32 @@ fn intensity(text: &str) -> Result<GramsCo2ePerKwh, String> {
     GramsCo2ePerKwh::new(value).map_err(|_| "expected a number above zero".to_owned())
 }
 
+/// The command line for the record: each `--api-keys` value, given as the
+/// next word or after `=`, replaced by `…`. AC/FE-85
+pub fn hide_keys(line: impl IntoIterator<Item = String>) -> Vec<String> {
+    const FLAGS: [&str; 2] = ["--api-keys", "--api_keys"];
+    let mut hidden = Vec::new();
+    let mut next_is_key = false;
+    for word in line {
+        if next_is_key {
+            hidden.push("…".to_owned());
+            next_is_key = false;
+        } else if let Some(flag) = FLAGS.iter().find(|flag| word.strip_prefix(*flag).is_some_and(|rest| rest.starts_with('='))) {
+            hidden.push(format!("{flag}=…"));
+        } else {
+            next_is_key = FLAGS.contains(&word.as_str());
+            hidden.push(word);
+        }
+    }
+    hidden
+}
+
 /// Keys as JSON, or a Python dict with single quotes, by any name of a
 /// [KeyedService]. Empty keys are left out.
 fn api_keys(text: &str) -> Result<BTreeMap<KeyedService, ApiKey>, String> {
     let parsed: BTreeMap<String, String> = serde_json::from_str(text)
         .or_else(|_| serde_json::from_str(&text.replace('\'', "\"")))
-        .map_err(|_| format!("--api-keys {text:?}: expected {{\"{}\": \"KEY\"}}", KeyedService::ALL[0].name()))?;
+        .map_err(|_| format!("--api-keys: expected JSON like {{\"{}\": \"KEY\"}}", KeyedService::ALL[0].name()))?;
 
     let unknown: Vec<&str> =
         parsed.keys().map(String::as_str).filter(|name| KeyedService::from_name(name).is_none()).collect();
@@ -442,6 +495,19 @@ mod tests {
     }
 
     /// AC/FE-7, AC/FE-41
+    /// AC/FE-85
+    #[test]
+    fn the_recorded_command_hides_every_api_keys_value() {
+        let line = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            hide_keys(line(&["carbontracker", "--api-keys", "{\"electricity_maps\": \"k\"}", "--global", "python", "train.py"])),
+            line(&["carbontracker", "--api-keys", "…", "--global", "python", "train.py"])
+        );
+        assert_eq!(hide_keys(line(&["carbontracker", "--api_keys={'electricitymaps': 'k'}", "true"])), line(&["carbontracker", "--api_keys=…", "true"]));
+        assert_eq!(hide_keys(line(&["carbontracker", "true", "--api-keys"])), line(&["carbontracker", "true", "--api-keys"]));
+        assert_eq!(hide_keys(line(&["carbontracker", "python", "x.py", "--keys", "k"])), line(&["carbontracker", "python", "x.py", "--keys", "k"]));
+    }
+
     #[test]
     fn api_keys_take_json_or_a_python_dict() {
         let electricity_maps = |key: &str| Ok([(KeyedService::ElectricityMaps, ApiKey::new(key))].into());

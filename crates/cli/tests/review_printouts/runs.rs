@@ -362,6 +362,8 @@ impl Run {
             command: vec!["python".to_owned(), "train.py".to_owned()],
             config: record::Config { interval_s: 1.0, pue: 1.58, components: None, location: None },
             epochs: None,
+            project: None,
+            name: None,
         };
         if let Some(predictor) = &self.predictor {
             predictor.describe(&mut header);

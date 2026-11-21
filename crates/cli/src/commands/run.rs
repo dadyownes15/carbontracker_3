@@ -26,12 +26,22 @@ pub fn track(args: &Args, command: &[OsString]) -> Result<i32, String> {
         .log_dir()
         .map(|dir| Folder::claim(dir, None).map_err(|error| format!("cannot write logs in {}: {error}", dir.display())))
         .transpose()?;
+    if let (Some(folder), Some(project)) = (&folder, args.project())
+        && let Err(error) = folder.link_to_project(project)
+    {
+        say(&presentation::warning(&error));
+    }
 
     let name = args::span_name(command);
     let verbosity = if args.verbose { Verbosity::Everything } else { Verbosity::Normal };
     let console = Console { out: Box::new(io::stderr()), verbosity, layout: Layout::Summary { title: name.clone() } };
     let sinks = standard_sinks(console, folder.as_ref()).map_err(|error| error.to_string())?;
-    let run = carbontracker_run::start(RunConfig { probe, tracker, frontend: "cli", sinks }, |_, _| ())
+    let run = carbontracker_run::start(RunConfig { probe, tracker, frontend: "cli",
+        project: args.project().map(str::to_owned),
+        name: args.name().map(str::to_owned),
+        command: args::hide_keys(std::env::args()),
+        sinks,
+    }, |_, _| ())
         .map_err(|error| error.to_string())?;
 
     // The command alone needs a runtime: to wait on it and on signals.
@@ -42,10 +52,16 @@ pub fn track(args: &Args, command: &[OsString]) -> Result<i32, String> {
     let outcome = runtime.block_on(in_span(&run, &name, command));
     drop(runtime);
 
-    if let Err(error) = run.finish(outcome) {
-        say(&presentation::error(&format!("the session didn't finish: {error}")));
+    Ok(close(outcome, run.finish(outcome), |line| say(&line)))
+}
+
+/// The exit code once the session is finished: the command's, whether or not
+/// the session finished. A failure is said, never returned. AC/FE-31
+fn close<T, E: std::fmt::Display>(outcome: Outcome, finished: Result<T, E>, mut say: impl FnMut(String)) -> i32 {
+    if let Err(error) = finished {
+        say(presentation::error(&format!("the session didn't finish: {error}")));
     }
-    Ok(exit_code(outcome))
+    exit_code(outcome)
 }
 
 /// Runs `command` as a span named `name` and returns how it ended. A
@@ -143,4 +159,28 @@ fn outcome(status: io::Result<ExitStatus>) -> Outcome {
         }
     }
     Outcome::Exited { code: 1 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// AC/FE-31
+    #[test]
+    fn a_session_that_fails_to_finish_is_reported_and_keeps_the_commands_exit_code() {
+        for (outcome, code) in [(Outcome::Exited { code: 0 }, 0), (Outcome::Exited { code: 3 }, 3), (Outcome::Signalled { signal: 15 }, 143)] {
+            let mut said = Vec::new();
+            let exit = close(outcome, Err::<(), _>("the engine stopped"), |line| said.push(line));
+            assert_eq!(exit, code);
+            assert_eq!(said.len(), 1, "{said:?}");
+            assert!(said[0].contains("the session didn't finish: the engine stopped"), "{said:?}");
+        }
+    }
+
+    #[test]
+    fn a_session_that_finishes_says_nothing_more() {
+        let mut said = Vec::new();
+        assert_eq!(close(Outcome::Exited { code: 3 }, Ok::<(), &str>(()), |line| said.push(line)), 3);
+        assert!(said.is_empty(), "{said:?}");
+    }
 }

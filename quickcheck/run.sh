@@ -3,7 +3,7 @@
 # hash of everything the suite depends on, and the number of cases. On a
 # pull request, CI skips its own run when the hash matches the code it checks
 # out, so commit the stamp after your last change. Any later change breaks
-# the match and CI runs the suite again. A push to main and the nightly run
+# the match and CI runs the suite again. A push to main or staging and the nightly run
 # ignore the stamp. AC/TST-38
 #
 #   quickcheck/run.sh          run the suite and write the stamp
