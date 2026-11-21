@@ -138,8 +138,8 @@ and before the command starts. <!-- AC/FE-50 -->
 **On a terminal, `check` opens a full-screen view**: the emission rate right
 now (power × PUE × intensity, in gCO2eq/h), then one line each for power,
 location, intensity and forecast, with the value, how it is obtained and the
-provider serving it. The values follow each readout until the user presses
-`q`, Esc or Ctrl-C. <!-- AC/FE-77 -->
+provider serving it, none for a stated location. The values follow each
+readout until the user presses `q`, Esc or Ctrl-C. <!-- AC/FE-77 -->
 
 **A kind nothing serves shows `none`** and points to `check -v`. <!-- AC/FE-78 -->
 
