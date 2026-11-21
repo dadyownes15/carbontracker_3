@@ -1,6 +1,7 @@
 //! [ProviderRegistry]: the four chains, power, location, intensity and
 //! forecast, run in that order.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,8 +11,13 @@ use chrono::Utc;
 use crate::adapters::intensity::constant::{constant_intensity, WORLD_AVERAGE_G_CO2_PER_KWH};
 use crate::adapters::intensity::country_average::probe_country_average;
 use crate::adapters::intensity::electricity_maps::{
-    probe_electricity_maps, probe_electricity_maps_forecast, Api, base_url,
+    probe_electricity_maps, probe_electricity_maps_forecast, Api, base_url, ForecastProbe,
 };
+use crate::adapters::intensity::energinet::{probe_energinet, probe_energinet_forecast, ENERGINET, ENERGINET_URL};
+use crate::adapters::intensity::energy_charts::{
+    probe_energy_charts, probe_energy_charts_forecast, EnergyChartsForecast, ENERGY_CHARTS, ENERGY_CHARTS_URL,
+};
+use crate::adapters::intensity::neso::{self, probe_neso, probe_neso_forecast, NESO, NESO_URL};
 use crate::adapters::power::constant::{constant_device, constant_power};
 use crate::adapters::power::generic_cpu::probe_generic_cpu;
 #[cfg(target_os = "macos")]
@@ -30,7 +36,7 @@ use crate::application::resolution::{ProbeProgress, Resolution};
 use crate::domain::config::{KeyedService, ProbeConfig, ProbeConfigError};
 use crate::domain::location::Location;
 use crate::domain::verdict::Verdict;
-use crate::ports::Outcome;
+use crate::ports::{Outcome, Probed};
 
 // Fixed per candidate so ids are stable across runs and a probe can mint
 // `SourceId`s before knowing whether it wins.
@@ -53,6 +59,11 @@ pub(crate) const STATIC_GPU: ProviderId = ProviderId(14);
 pub(crate) const NVML_POWER: ProviderId = ProviderId(15);
 #[cfg(target_os = "macos")]
 pub(crate) const IOREPORT: ProviderId = ProviderId(16);
+pub(crate) const ENERGINET_ID: ProviderId = ProviderId(17);
+pub(crate) const NESO_ID: ProviderId = ProviderId(18);
+pub(crate) const ENERGY_CHARTS_ID: ProviderId = ProviderId(19);
+
+const ELECTRICITY_MAPS_FORECAST: &str = "electricity-maps-forecast";
 
 /// The default provider registry: the ranked candidates above, probed
 /// against what [ProbeConfig] asks for.
@@ -66,8 +77,11 @@ pub struct ProviderRegistry {
 #[derive(Debug, Clone)]
 pub(crate) struct Endpoints {
     pub(crate) ip_geolocation: String,
-    /// Base URL; the candidates append the endpoint's path.
+    /// Base URLs; the candidates append the endpoint's path.
     pub(crate) electricity_maps: String,
+    pub(crate) energinet: String,
+    pub(crate) neso: String,
+    pub(crate) energy_charts: String,
     /// Bounds every request, while probing and on later readouts, so a slow
     /// service never hangs probing or the tracker thread.
     pub(crate) timeout: Duration,
@@ -78,6 +92,9 @@ impl Default for Endpoints {
         Self {
             ip_geolocation: IP_GEOLOCATION_URL.to_owned(),
             electricity_maps: base_url(),
+            energinet: ENERGINET_URL.to_owned(),
+            neso: NESO_URL.to_owned(),
+            energy_charts: ENERGY_CHARTS_URL.to_owned(),
             timeout: Duration::from_secs(2),
         }
     }
@@ -125,6 +142,7 @@ pub(crate) struct Net {
     client: reqwest::Client,
     endpoints: Endpoints,
     electricity_maps: Option<Api>,
+    neso: neso::Api,
 }
 
 impl Net {
@@ -142,14 +160,28 @@ impl Net {
             .api_keys
             .get(&KeyedService::ElectricityMaps)
             .map(|key| Api::new(&client, &endpoints.electricity_maps, key));
-        Self { client, endpoints: endpoints.clone(), electricity_maps }
+        let neso = neso::Api::new(&client, &endpoints.neso);
+        Self { client, endpoints: endpoints.clone(), electricity_maps, neso }
     }
 }
 
-/// The intensity the chain resolved: its value now, and the grid it measures.
+/// The intensity the chain resolved: its value now, the grid it measures,
+/// and who published it.
 struct Grid {
     g_per_kwh: f64,
     location: GridLocation,
+    publisher: Publisher,
+}
+
+/// Who billed the run: the forecast is asked only of the same publisher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Publisher {
+    ElectricityMaps,
+    Energinet,
+    Neso,
+    EnergyCharts,
+    /// A table, a constant or a stated figure: nobody publishes a forecast.
+    Nobody,
 }
 
 /// The grid an outcome's first source describes, if it is a grid source.
@@ -261,22 +293,34 @@ async fn probe_intensity(
         chain.probing("static");
         let pinned = constant_intensity(STATIC_INTENSITY, fixed, stated.clone(), Fidelity::Stated);
         chain.take(STATIC_INTENSITY, "static", Ok(pinned));
-        return Grid { g_per_kwh: fixed, location: stated };
+        return Grid { g_per_kwh: fixed, location: stated, publisher: Publisher::Nobody };
     }
 
-    chain.probing("electricity-maps");
-    let live = probe_electricity_maps(ELECTRICITY_MAPS, net.electricity_maps.clone(), location).await;
-    let mut resolved = resolved_grid(live.as_ref().ok());
-    chain.take(ELECTRICITY_MAPS, "electricity-maps", live.map(|(outcome, _)| outcome));
-
-    // Explicit checks: a country's or `Global` coverage never collides with a zone's.
-    if chain.already_has(SourceKind::Intensity) {
-        chain.record("country-average", Verdict::Covered);
-    } else {
-        chain.probing("country-average");
-        let table = probe_country_average(COUNTRY_AVERAGE, location);
-        resolved = resolved_grid(table.as_ref().ok());
-        chain.take(COUNTRY_AVERAGE, "country-average", table.map(|(outcome, _)| outcome));
+    let mut resolved = None;
+    let em = net.electricity_maps.clone();
+    let candidates = [
+        (ELECTRICITY_MAPS, "electricity-maps", Publisher::ElectricityMaps),
+        // The grid's own operator before an aggregator.
+        (ENERGINET_ID, ENERGINET, Publisher::Energinet),
+        (NESO_ID, NESO, Publisher::Neso),
+        (ENERGY_CHARTS_ID, ENERGY_CHARTS, Publisher::EnergyCharts),
+        (COUNTRY_AVERAGE, "country-average", Publisher::Nobody),
+    ];
+    for (id, name, publisher) in candidates {
+        let probed = match publisher {
+            Publisher::ElectricityMaps => next(chain, name, probe_electricity_maps(id, em.clone(), location)).await,
+            Publisher::Energinet => {
+                next(chain, name, probe_energinet(id, &net.client, &net.endpoints.energinet, location)).await
+            }
+            Publisher::Neso => next(chain, name, probe_neso(id, net.neso.clone(), location)).await,
+            Publisher::EnergyCharts => {
+                next(chain, name, probe_energy_charts(id, &net.client, &net.endpoints.energy_charts, location)).await
+            }
+            Publisher::Nobody => next(chain, name, async { probe_country_average(id, location) }).await,
+        };
+        let Some(probed) = probed else { continue };
+        resolved = resolved_grid(probed.as_ref().ok(), publisher);
+        chain.take(id, name, probed.map(|(outcome, _)| outcome));
     }
 
     if chain.already_has(SourceKind::Intensity) {
@@ -292,12 +336,56 @@ async fn probe_intensity(
         chain.take(GLOBAL_AVERAGE, "global-average", Ok(floor));
     }
 
-    resolved.unwrap_or(Grid { g_per_kwh: WORLD_AVERAGE_G_CO2_PER_KWH, location: GridLocation::Global })
+    resolved.unwrap_or(Grid {
+        g_per_kwh: WORLD_AVERAGE_G_CO2_PER_KWH,
+        location: GridLocation::Global,
+        publisher: Publisher::Nobody,
+    })
 }
 
-fn resolved_grid(probed: Option<&(Outcome, f64)>) -> Option<Grid> {
+/// Probes the next intensity candidate, or records it as covered when an
+/// earlier one already serves; `probe` sends nothing until awaited. An
+/// explicit check, since a country's or `Global` coverage never collides
+/// with a zone's.
+async fn next(
+    chain: &mut Chain<'_>,
+    name: &'static str,
+    probe: impl Future<Output = Probed<(Outcome, f64)>>,
+) -> Option<Probed<(Outcome, f64)>> {
+    if chain.already_has(SourceKind::Intensity) {
+        chain.record(name, Verdict::Covered);
+        return None;
+    }
+    chain.probing(name);
+    Some(probe.await)
+}
+
+fn resolved_grid(probed: Option<&(Outcome, f64)>, publisher: Publisher) -> Option<Grid> {
     let (outcome, g_per_kwh) = probed?;
-    Some(Grid { g_per_kwh: *g_per_kwh, location: grid_of(outcome)?.clone() })
+    Some(Grid { g_per_kwh: *g_per_kwh, location: grid_of(outcome)?.clone(), publisher })
+}
+
+/// A published forecast, whoever published it: the grid it is for, the curve
+/// fetched while probing, how far it reaches, and how to fetch it again.
+struct Published {
+    location: GridLocation,
+    curve: Vec<Sample>,
+    horizon: Duration,
+    fetch: Fetch,
+}
+
+impl From<ForecastProbe> for Published {
+    fn from(probed: ForecastProbe) -> Self {
+        let location = GridLocation::Zone { zone_id: probed.zone };
+        Self { location, curve: probed.curve, horizon: probed.horizon, fetch: probed.fetch }
+    }
+}
+
+impl From<EnergyChartsForecast> for Published {
+    fn from(probed: EnergyChartsForecast) -> Self {
+        let location = GridLocation::Country { country_code: probed.country.to_string() };
+        Self { location, curve: probed.curve, horizon: probed.horizon, fetch: probed.fetch }
+    }
 }
 
 /// The forecast for the grid the run is billed against: pinned, published,
@@ -316,33 +404,50 @@ async fn probe_forecast(
         return serve(chain, flat(fixed, grid.location.clone(), horizon, Fidelity::Stated, "static"));
     }
 
-    chain.probing("electricity-maps-forecast");
-    let live = probe_electricity_maps_forecast(net.electricity_maps.clone(), location, horizon)
-        .await
-        // Never told about one grid and billed against another.
-        .and_then(|probed| {
-            let forecast_for = GridLocation::Zone { zone_id: probed.zone.clone() };
-            if forecast_for == grid.location {
-                Ok(probed)
-            } else {
-                Err(format!("the forecast is for {forecast_for}, but the run is billed against {}", grid.location))
-            }
-        });
-    match live {
-        Ok(probed) => {
-            let forecaster = Forecaster::new(
-                grid.location.clone(),
-                Fidelity::Measured,
-                probed.horizon,
-                "electricity-maps-forecast",
-                probed.fetch,
-            )
-            .primed(probed.curve);
+    // The publisher that billed the run, or Electricity Maps; never another
+    // publisher, and never Electricity Maps about a grid an open source serves.
+    let name = match grid.publisher {
+        Publisher::Energinet => "energinet-forecast",
+        Publisher::Neso => "neso-forecast",
+        Publisher::EnergyCharts => "energy-charts-forecast",
+        Publisher::ElectricityMaps | Publisher::Nobody => ELECTRICITY_MAPS_FORECAST,
+    };
+    if name != ELECTRICITY_MAPS_FORECAST {
+        chain.record(ELECTRICITY_MAPS_FORECAST, Verdict::NotWanted);
+    }
+    chain.probing(name);
+    let published: Probed<Published> = match grid.publisher {
+        Publisher::Energinet => {
+            probe_energinet_forecast(&net.client, &net.endpoints.energinet, location, horizon).await.map(Into::into)
+        }
+        Publisher::Neso => probe_neso_forecast(net.neso.clone(), location, horizon).await.map(Into::into),
+        Publisher::EnergyCharts => {
+            probe_energy_charts_forecast(&net.client, &net.endpoints.energy_charts, location, horizon)
+                .await
+                .map(Into::into)
+        }
+        Publisher::ElectricityMaps | Publisher::Nobody => {
+            probe_electricity_maps_forecast(net.electricity_maps.clone(), location, horizon).await.map(Into::into)
+        }
+    };
+    // Never told about one grid and billed against another.
+    let published = published.and_then(|published| {
+        if published.location == grid.location {
+            Ok(published)
+        } else {
+            Err(format!("the forecast is for {}, but the run is billed against {}", published.location, grid.location))
+        }
+    });
+    match published {
+        Ok(published) => {
+            let forecaster =
+                Forecaster::new(grid.location.clone(), Fidelity::Measured, published.horizon, name, published.fetch)
+                    .primed(published.curve);
             let forecaster = serve(chain, forecaster);
             chain.record("projection", Verdict::Covered);
             return forecaster;
         }
-        Err(reason) => chain.record("electricity-maps-forecast", Verdict::Declined(reason)),
+        Err(reason) => chain.record(name, Verdict::Declined(reason)),
     }
 
     chain.probing("projection");

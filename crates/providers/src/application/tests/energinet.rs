@@ -20,8 +20,8 @@ const ID: ProviderId = ProviderId(99);
 const CO2EMIS: &str = include_str!("fixtures/energinet/co2emis.json");
 const CO2EMISPROG: &str = include_str!("fixtures/energinet/co2emisprog.json");
 const RATE_LIMITED: &str = include_str!("fixtures/energinet/rate_limited.json");
-const CO2EMIS_PATH: &str = "/dataset/CO2Emis";
-const CO2EMISPROG_PATH: &str = "/dataset/CO2EmisProg";
+pub(super) const CO2EMIS_PATH: &str = "/dataset/CO2Emis";
+pub(super) const CO2EMISPROG_PATH: &str = "/dataset/CO2EmisProg";
 const HOUR: Duration = Duration::from_secs(60 * 60);
 
 fn ok(body: impl Into<String>) -> ResponseTemplate {
@@ -66,12 +66,12 @@ fn restamped(fixture: &str, area: &str, first: DateTime<Utc>, step: i64) -> serd
 }
 
 /// The CO2Emis fixture, latest first, its latest figure for the interval now.
-fn latest_answer(area: &str) -> serde_json::Value {
+pub(super) fn latest_answer(area: &str) -> serde_json::Value {
     restamped(CO2EMIS, area, this_interval(), -1)
 }
 
 /// The CO2EmisProg fixture, starting with the interval now.
-fn forecast_answer(area: &str) -> serde_json::Value {
+pub(super) fn forecast_answer(area: &str) -> serde_json::Value {
     restamped(CO2EMISPROG, area, this_interval(), 1)
 }
 
@@ -84,7 +84,7 @@ async fn probe_forecast(server: &MockServer, location: Option<Location>, horizon
 }
 
 /// Answers `endpoint` for `area` only.
-async fn serve(server: &MockServer, endpoint: &str, area: &str, answer: ResponseTemplate) {
+pub(super) async fn serve(server: &MockServer, endpoint: &str, area: &str, answer: ResponseTemplate) {
     Mock::given(method("GET"))
         .and(path(endpoint))
         .and(query_param("filter", format!(r#"{{"PriceArea":["{area}"]}}"#)))
