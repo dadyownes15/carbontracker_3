@@ -97,7 +97,7 @@ pub fn start(args: &Args) -> Result<Feed, String> {
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     let thread = std::thread::spawn(move || {
         let failed = tx.clone();
-        let config = RunConfig { probe, tracker, frontend: "cli", project: None, name: None, sinks: vec![Box::new(ChannelSink(tx))] };
+        let config = RunConfig { probe, tracker, frontend: "cli", project: None, name: None, command: crate::args::hide_keys(std::env::args()), sinks: vec![Box::new(ChannelSink(tx))] };
         let run = match carbontracker_run::start(config, |_, _| ()) {
             Ok(run) => run,
             Err(error) => {

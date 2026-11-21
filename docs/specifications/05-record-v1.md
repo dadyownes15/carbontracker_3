@@ -1,6 +1,14 @@
 # The record — format 1
 
 A run's `.ct` file: JSON lines, one `Record` per line, the `run` header first. <!-- AC/REC-1 -->
+
+**A line is in the file once it is written.** The header is in the file before the
+tracked work starts, so a run killed at any moment leaves a record that reads
+as an incomplete run. <!-- AC/REC-23 -->
+
+**A record holds no key.** The header's `command` is the command line as the
+frontend gives it, which leaves keys out. <!-- AC/REC-24 -->
+
 This is carbontracker's longest-lived specification, because the files outlive every
 version that wrote them.
 

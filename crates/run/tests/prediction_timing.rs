@@ -128,6 +128,7 @@ fn config(world: &World, out: &Shared) -> RunConfig {
         frontend: "test",
         project: None,
         name: None,
+        command: Vec::new(),
         sinks: vec![Box::new(ConsoleSink::new(
             out.clone(),
             Verbosity::Normal,

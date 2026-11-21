@@ -34,6 +34,9 @@ pub struct RunConfig {
     pub project: Option<String>,
     /// The run's name, for people.
     pub name: Option<String>,
+    /// The command line the record names, as the frontend wants it shown:
+    /// with no key in it.
+    pub command: Vec<String>,
     /// Everything the run writes to, in this order.
     pub sinks: Vec<Box<dyn Sink>>,
 }
@@ -74,10 +77,11 @@ pub fn start<P: Projection>(
         frontend,
         project,
         name,
+        command,
         sinks,
     } = config;
     let writer = WriterHandle::new(sinks);
-    match begin(probe, tracker, frontend, project, name, &writer) {
+    match begin(probe, tracker, frontend, project, name, command, &writer) {
         Ok((engine, forecaster, mut started, events, warnings)) => {
             let projection = projection(&engine.downgrade(), &forecaster);
             projection.describe(&mut started.header);
@@ -117,6 +121,7 @@ fn begin(
     frontend: &'static str,
     project: Option<String>,
     name: Option<String>,
+    command: Vec<String>,
     writer: &WriterHandle,
 ) -> Result<(TrackerHandle, Forecaster, Started, Subscription, Vec<String>), RunError> {
     let components = encode::components(&probe.measure);
@@ -133,7 +138,7 @@ fn begin(
         format: record::FORMAT,
         carbontracker: VERSION.to_owned(),
         frontend: frontend.to_owned(),
-        command: std::env::args().collect(),
+        command,
         config: record::Config {
             interval_s: tracker.readout_interval.as_secs_f64(),
             pue: tracker.pue.get(),

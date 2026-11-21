@@ -45,6 +45,7 @@ fn config(sinks: Vec<Box<dyn Sink>>) -> RunConfig {
         frontend: "test",
         project: None,
         name: None,
+        command: Vec::new(),
         sinks,
     }
 }
@@ -211,14 +212,14 @@ fn a_failed_sink_is_a_warning_at_quiet() {
     assert_eq!(out.text(), "CarbonTracker: WARNING - the failing sink failed and stopped: disk full\n");
 }
 
-/// AC/REC-1, AC/REC-6, AC/REC-7
+/// AC/REC-1, AC/REC-6, AC/REC-7, AC/REC-24
 #[test]
 fn the_record_starts_with_the_run_the_probe_and_the_catalog() {
     let dir = tempfile::tempdir().unwrap();
     let folder = Folder::claim(dir.path(), None).unwrap();
-    one_span(config(
-        standard_sinks(console(&Shared::default(), Verbosity::Quiet), Some(&folder)).unwrap(),
-    ));
+    let mut given = config(standard_sinks(console(&Shared::default(), Verbosity::Quiet), Some(&folder)).unwrap());
+    given.command = vec!["python".to_owned(), "train.py".to_owned()];
+    one_span(given);
 
     let lines = record(&folder);
     let kinds: Vec<&str> = lines
@@ -229,10 +230,9 @@ fn the_record_starts_with_the_run_the_probe_and_the_catalog() {
     assert_eq!(kinds[kinds.len() - 2..], ["outcome", "session"]);
 
     let run = &lines[0];
-    let command: Vec<String> = std::env::args().collect();
     assert_eq!(
         (&run["frontend"], &run["command"]),
-        (&"test".into(), &serde_json::json!(command))
+        (&"test".into(), &serde_json::json!(["python", "train.py"]))
     );
     assert_eq!(run["epochs"], serde_json::Value::Null);
     let candidates = lines[1]["candidates"].as_array().unwrap();

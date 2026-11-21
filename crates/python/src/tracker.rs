@@ -170,7 +170,7 @@ impl Tracker {
         let started_at = convert::seconds(&chrono::Utc::now());
         // The writer takes the GIL to print, even while this waits.
         let run = py
-            .detach(|| carbontracker_run::start(RunConfig { probe, tracker, frontend: "python", project, name, sinks }, projected))
+            .detach(|| carbontracker_run::start(RunConfig { probe, tracker, frontend: "python", project, name, command: std::env::args().collect(), sinks }, projected))
             .map_err(stopped)?;
         let started = run.started();
         let location = started.header.config.location.as_ref().map(presentation::location);

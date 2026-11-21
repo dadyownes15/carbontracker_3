@@ -359,12 +359,32 @@ fn intensity(text: &str) -> Result<GramsCo2ePerKwh, String> {
     GramsCo2ePerKwh::new(value).map_err(|_| "expected a number above zero".to_owned())
 }
 
+/// The command line for the record: each `--api-keys` value, given as the
+/// next word or after `=`, replaced by `…`. AC/FE-85
+pub fn hide_keys(line: impl IntoIterator<Item = String>) -> Vec<String> {
+    const FLAGS: [&str; 2] = ["--api-keys", "--api_keys"];
+    let mut hidden = Vec::new();
+    let mut next_is_key = false;
+    for word in line {
+        if next_is_key {
+            hidden.push("…".to_owned());
+            next_is_key = false;
+        } else if let Some(flag) = FLAGS.iter().find(|flag| word.strip_prefix(*flag).is_some_and(|rest| rest.starts_with('='))) {
+            hidden.push(format!("{flag}=…"));
+        } else {
+            next_is_key = FLAGS.contains(&word.as_str());
+            hidden.push(word);
+        }
+    }
+    hidden
+}
+
 /// Keys as JSON, or a Python dict with single quotes, by any name of a
 /// [KeyedService]. Empty keys are left out.
 fn api_keys(text: &str) -> Result<BTreeMap<KeyedService, ApiKey>, String> {
     let parsed: BTreeMap<String, String> = serde_json::from_str(text)
         .or_else(|_| serde_json::from_str(&text.replace('\'', "\"")))
-        .map_err(|_| format!("--api-keys {text:?}: expected {{\"{}\": \"KEY\"}}", KeyedService::ALL[0].name()))?;
+        .map_err(|_| format!("--api-keys: expected JSON like {{\"{}\": \"KEY\"}}", KeyedService::ALL[0].name()))?;
 
     let unknown: Vec<&str> =
         parsed.keys().map(String::as_str).filter(|name| KeyedService::from_name(name).is_none()).collect();
@@ -475,6 +495,19 @@ mod tests {
     }
 
     /// AC/FE-7, AC/FE-41
+    /// AC/FE-85
+    #[test]
+    fn the_recorded_command_hides_every_api_keys_value() {
+        let line = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            hide_keys(line(&["carbontracker", "--api-keys", "{\"electricity_maps\": \"k\"}", "--global", "python", "train.py"])),
+            line(&["carbontracker", "--api-keys", "…", "--global", "python", "train.py"])
+        );
+        assert_eq!(hide_keys(line(&["carbontracker", "--api_keys={'electricitymaps': 'k'}", "true"])), line(&["carbontracker", "--api_keys=…", "true"]));
+        assert_eq!(hide_keys(line(&["carbontracker", "true", "--api-keys"])), line(&["carbontracker", "true", "--api-keys"]));
+        assert_eq!(hide_keys(line(&["carbontracker", "python", "x.py", "--keys", "k"])), line(&["carbontracker", "python", "x.py", "--keys", "k"]));
+    }
+
     #[test]
     fn api_keys_take_json_or_a_python_dict() {
         let electricity_maps = |key: &str| Ok([(KeyedService::ElectricityMaps, ApiKey::new(key))].into());
