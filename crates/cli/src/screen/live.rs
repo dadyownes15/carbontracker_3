@@ -318,9 +318,11 @@ impl Live {
             .map(|candidate| candidate.name);
         match by {
             Some(name) => {
-                let how = if name.starts_with("stated") { How::Stated } else { How::Live };
+                // A stated location has no provider to name.
+                let (how, by) = if name.starts_with("stated") { (How::Stated, "") } else { (How::Live, name) };
                 let value = place.unwrap_or_else(|| "…".into());
-                KindLine { label: "location", value, how: Some(how), by: format!("({name})"), failure: None }
+                let by = if by.is_empty() { String::new() } else { format!("({by})") };
+                KindLine { label: "location", value, how: Some(how), by, failure: None }
             }
             None => KindLine {
                 label: "location",
@@ -423,13 +425,17 @@ fn stale(value: String, failed: bool) -> String {
 type Component = (PowerDomain, Option<f64>);
 
 /// A source by what it reads, marked with its provider: `gpu (nvml)`,
-/// `DK-DK2 (electricity-maps)`.
+/// `DK-DK2 (electricity-maps)`, `DK-DK2 direct CO2 (energinet)`.
 fn named(source: &Source) -> String {
     let what = match &source.description {
         SourceDescription::Power { domain, .. } => domain.to_string(),
         SourceDescription::Intensity { location, .. } => presentation::grid(location),
     };
-    format!("{what} ({})", source.served_by)
+    // A candidate's own qualifier, as in `energinet (direct CO2)`, goes with the source.
+    match source.served_by.split_once(" (") {
+        Some((name, qualifier)) => format!("{what} {} ({name})", qualifier.trim_end_matches(')')),
+        None => format!("{what} ({})", source.served_by),
+    }
 }
 
 impl Latest {
@@ -667,14 +673,30 @@ pub(crate) mod tests {
 
     /// AC/FE-61
     #[test]
-    fn a_key_whose_provider_declined_is_warned_about_with_its_reason() {
+    fn a_refused_key_is_warned_about_once_however_many_zones_were_asked() {
         let mut live = Live::new(1.0).with_keys(vec![em_key()]);
-        live.apply(Msg::Decided("electricity-maps", Verdict::Declined("zone DK-DK2: access denied: Electricity Maps refused the key (401 Unauthorized)".into())));
+        let reason = "zone DK-DK2: access denied: Electricity Maps refused the key (401 Unauthorized); \
+                      zone DK: access denied: Electricity Maps refused the key (401 Unauthorized)";
+        live.apply(Msg::Decided("electricity-maps", Verdict::Declined(reason.into())));
         let [warning] = live.warnings().try_into().unwrap();
-        assert!(warning.starts_with("! electricity_maps key …1234 found, but electricity-maps is unavailable"), "{warning}");
-        assert!(warning.contains("zone DK-DK2: access denied"), "{warning}");
-        assert!(warning.contains("carbontracker init"), "{warning}");
-        assert!(live.snapshot(false).contains("zone DK-DK2: access denied"), "kept after closing");
+        assert_eq!(
+            warning,
+            "! Electricity Maps refused key …1234 (401 Unauthorized)\n    run `carbontracker init` to change it"
+        );
+        assert!(live.snapshot(false).contains("refused key …1234"), "kept after closing");
+    }
+
+    /// AC/FE-77
+    #[test]
+    fn a_stated_location_names_no_provider() {
+        let mut live = Live::new(1.0);
+        live.apply(Msg::Decided("stated-location", Verdict::Serving(vec!["DK-DK2".into()])));
+        live.apply(Msg::Started { sources: vec![intensity(3, "energinet (direct CO2)", Fidelity::Measured)], forecast: Some(forecast()) });
+        let lines = live.lines();
+        let location = lines.iter().find(|line| line.label == "location").unwrap();
+        assert_eq!((location.value.as_str(), location.how, location.by.as_str()), ("DK-DK2", Some(How::Stated), ""));
+        let intensity = lines.iter().find(|line| line.label == "intensity").unwrap();
+        assert_eq!(intensity.by, "DK-DK2 direct CO2 (energinet)", "the candidate's own qualifier stays with the source");
     }
 
     /// AC/FE-61

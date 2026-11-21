@@ -261,7 +261,7 @@ pub(crate) mod tests {
         };
         tx.send(Msg::Readout(std::sync::Arc::new(std::collections::HashMap::from([failed(2), failed(3)])))).unwrap();
         let screen = draw(&mut view);
-        assert!(screen.contains("electricity-maps is unavailable: zone DK-DK2: access denied"), "{screen}");
+        assert!(screen.contains("Electricity Maps refused key …1234 (401 Unauthorized)"), "{screen}");
         assert!(screen.contains("carbontracker init"), "{screen}");
         assert!(screen.contains("gpu (nvml): the read timed out"), "{screen}");
         assert!(screen.contains("(stale)"), "{screen}");

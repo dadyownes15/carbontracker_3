@@ -202,13 +202,21 @@ fn warnings(candidates: &[CandidateOutcome], keys: &Keys) -> Vec<String> {
 /// key points to `init`: when the service could not be reached, a new key
 /// would not help.
 pub(crate) fn key_warning(service: &str, hint: &str, candidate: &str, reason: &str) -> String {
-    let warning = format!("! {service} key {hint} found, but {candidate} is unavailable: {reason}");
-    // The providers' words for a 401 or 403.
-    if reason.contains("refused the key") {
-        format!("{warning}\n    run `carbontracker init` to fix the key")
-    } else {
-        warning
+    match refusal(reason) {
+        Some((by, status)) => format!("! {by} refused key {hint} {status}\n    run `carbontracker init` to change it"),
+        None => format!("! {service} key {hint} found, but {candidate} is unavailable: {reason}"),
     }
+}
+
+/// Who refused the key and with what status, from the providers' words for
+/// a 401 or 403, e.g. `zone DK: access denied: Electricity Maps refused the
+/// key (401 Unauthorized)`. Every zone asked gives the same refusal, so the
+/// first is enough.
+fn refusal(reason: &str) -> Option<(&str, &str)> {
+    let first = reason.split("; ").next()?;
+    let (before, status) = first.split_once(" refused the key ")?;
+    let by = before.rsplit(": ").next()?;
+    Some((by, status))
 }
 
 fn render(rows: &[Row], warnings: &[String], colour: bool) -> String {
@@ -251,9 +259,10 @@ mod tests {
         let refused = Verdict::Declined("access denied: Electricity Maps refused the key (401 Unauthorized)".into());
         let candidates = [outcome("electricity-maps", refused)];
         let [warning] = warnings(&candidates, &keyed()).try_into().unwrap();
-        assert!(warning.starts_with("! electricity_maps key …1234 found, but electricity-maps is unavailable"));
-        assert!(warning.contains("refused the key (401 Unauthorized)"), "{warning}");
-        assert!(warning.contains("carbontracker init"), "{warning}");
+        assert_eq!(
+            warning,
+            "! Electricity Maps refused key …1234 (401 Unauthorized)\n    run `carbontracker init` to change it"
+        );
         assert!(!warning.contains("secret"));
     }
 
