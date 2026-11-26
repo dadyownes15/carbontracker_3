@@ -4,7 +4,7 @@ resolver = "2"
 
 [workspace.package]
 # The version a record names as the carbontracker that wrote it.
-version = "3.0.0-dev.1"
+version = "3.0.0-dev.2"
 
 [profile.release]
 lto = "fat"

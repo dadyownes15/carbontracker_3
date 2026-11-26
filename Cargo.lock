@@ -259,7 +259,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "carbontracker"
-version = "3.0.0-dev.1"
+version = "3.0.0-dev.2"
 dependencies = [
  "chrono",
  "proptest",
@@ -272,7 +272,7 @@ dependencies = [
 
 [[package]]
 name = "carbontracker-cli"
-version = "3.0.0-dev.1"
+version = "3.0.0-dev.2"
 dependencies = [
  "assert_cmd",
  "carbontracker",
@@ -292,7 +292,7 @@ dependencies = [
 
 [[package]]
 name = "carbontracker-providers"
-version = "3.0.0-dev.1"
+version = "3.0.0-dev.2"
 dependencies = [
  "carbontracker",
  "chrono",
@@ -315,7 +315,7 @@ dependencies = [
 
 [[package]]
 name = "carbontracker-py"
-version = "3.0.0-dev.1"
+version = "3.0.0-dev.2"
 dependencies = [
  "carbontracker",
  "carbontracker-cli",
@@ -327,7 +327,7 @@ dependencies = [
 
 [[package]]
 name = "carbontracker-run"
-version = "3.0.0-dev.1"
+version = "3.0.0-dev.2"
 dependencies = [
  "carbontracker",
  "carbontracker-providers",
