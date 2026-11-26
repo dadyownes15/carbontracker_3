@@ -10,7 +10,7 @@ use carbontracker_providers::ProbeProgress;
 
 use super::Verbosity;
 use crate::domain::item::{Block, Layout, Outcome, Started};
-use crate::domain::presentation::{self, PREFIX, Ready, events};
+use crate::domain::presentation::{self, PREFIX, Ready, events, paint};
 use crate::ports::Sink;
 
 /// Warnings and errors at every verbosity; from [Verbosity::Normal] what is
@@ -35,6 +35,11 @@ pub struct ConsoleSink {
     global: bool,
     /// The span warnings printed so far, each printed once per run.
     span_warnings: HashSet<String>,
+    /// The warnings themselves, without their span, so the session's own
+    /// copy is not printed again.
+    warned: HashSet<String>,
+    /// Paint lines for a terminal.
+    colour: bool,
 }
 
 impl ConsoleSink {
@@ -54,6 +59,8 @@ impl ConsoleSink {
             now: Box::new(|| chrono::Local::now().format("%H:%M:%S").to_string()),
             spans: HashMap::new(),
             span_warnings: HashSet::new(),
+            warned: HashSet::new(),
+            colour: false,
             sources: HashMap::new(),
             served_by: HashMap::new(),
             global: false,
@@ -67,6 +74,12 @@ impl ConsoleSink {
         self
     }
 
+    /// Paints lines for a terminal when `colour`.
+    pub fn with_colour(mut self, colour: bool) -> Self {
+        self.colour = colour;
+        self
+    }
+
     fn normal(&self) -> bool {
         self.verbosity >= Verbosity::Normal
     }
@@ -77,12 +90,31 @@ impl ConsoleSink {
 
     /// Each line of `text`, prefixed.
     fn say(&mut self, text: &str) -> io::Result<()> {
-        writeln!(self.out, "{}", presentation::prefixed(text))
+        self.say_with(text, paint::line)
+    }
+
+    /// Each line of `text`, prefixed, painted by `painter` on a terminal.
+    fn say_with(&mut self, text: &str, painter: fn(&str) -> String) -> io::Result<()> {
+        if !self.colour {
+            return writeln!(self.out, "{}", presentation::prefixed(text));
+        }
+        for line in text.lines() {
+            writeln!(self.out, "{}{}", paint::prefix(), painter(line))?;
+        }
+        Ok(())
     }
 
     /// `text` as printed whole: the prefix on its first line only.
     fn print(&mut self, text: &str) -> io::Result<()> {
-        writeln!(self.out, "{PREFIX}{text}")
+        self.print_with(text, str::to_owned)
+    }
+
+    /// `text` as printed whole, painted by `painter` on a terminal.
+    fn print_with(&mut self, text: &str, painter: fn(&str) -> String) -> io::Result<()> {
+        match self.colour {
+            true => writeln!(self.out, "{}{}", paint::prefix(), painter(text)),
+            false => writeln!(self.out, "{PREFIX}{text}"),
+        }
     }
 
     /// An event line, stamped.
@@ -136,12 +168,9 @@ impl ConsoleSink {
         match self.layout.clone() {
             Layout::Summary { title } => {
                 writeln!(self.out)?;
-                self.print(&presentation::summary(
-                    &title,
-                    report,
-                    self.logs.as_deref(),
-                    true,
-                ))?;
+                let block = presentation::summary(&title, report, self.logs.as_deref(), true);
+                let text = if self.colour { paint::summary(&block) } else { block.plain() };
+                self.print_with(&text, str::to_owned)?;
             }
             Layout::Legacy {
                 decimals,
@@ -191,8 +220,12 @@ impl Sink for ConsoleSink {
         if !self.normal() {
             return Ok(());
         }
-        for line in presentation::sources(&started.catalog, &started.served_by, started.forecast.as_ref()) {
-            self.say(&line)?;
+        // Only a prediction reads the forecast.
+        let predicts = started.header.epochs.as_ref().is_some_and(|epochs| epochs.before_prediction > 0);
+        let forecast = started.forecast.as_ref().filter(|_| predicts);
+        for line in presentation::source_lines(&started.catalog, &started.served_by, forecast) {
+            let text = if self.colour { paint::source_line(&line) } else { line.plain() };
+            self.say_with(&text, str::to_owned)?;
         }
         let ready = match &self.layout {
             Layout::Summary { title } => presentation::ready(Ready::Command(title)),
@@ -237,7 +270,8 @@ impl Sink for ConsoleSink {
                         Observation::Unchanged | Observation::Skipped(_) => {}
                         Observation::Failed(error) => {
                             let provider = self.served_by.get(source).copied();
-                            self.warning(&presentation::failed_read(&label, provider, &error.to_string()))?;
+                            let read = description.map_or_else(|| label.clone(), presentation::part);
+                            self.warning(&presentation::failed_read(&read, provider, &error.to_string()))?;
                         }
                     }
                 }
@@ -256,6 +290,7 @@ impl Sink for ConsoleSink {
                 let warnings: Vec<_> =
                     report.warnings.iter().filter_map(|warning| self.without_asked(warning)).collect();
                 for warning in warnings {
+                    self.warned.insert(warning.to_string());
                     let text = presentation::span_warning(&report.span_name, &warning.to_string());
                     if self.span_warnings.insert(text.clone()) {
                         self.warning(&text)?;
@@ -266,8 +301,11 @@ impl Sink for ConsoleSink {
             TrackerEvent::SessionEnded { report } => {
                 let warnings: Vec<_> =
                     report.warnings.iter().filter_map(|warning| self.without_asked(warning)).collect();
-                for warning in warnings {
-                    self.warning(&warning.to_string())?;
+                // A warning already printed for a span is not printed again.
+                let fresh: Vec<String> =
+                    warnings.iter().map(ToString::to_string).filter(|text| !self.warned.contains(text)).collect();
+                for text in fresh {
+                    self.warning(&text)?;
                 }
                 if self.normal() {
                     self.closing(report)?;

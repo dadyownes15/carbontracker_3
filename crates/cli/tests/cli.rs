@@ -165,7 +165,7 @@ fn verbose_adds_timed_steps_but_output_log_keeps_to_normal() {
     assert!(console.contains(" summary:\n"), "{console}");
 }
 
-/// AC/FE-44
+/// AC/FE-44, AC/OUT-37
 #[test]
 fn before_the_command_stderr_lists_what_is_measured() {
     let dir = tempfile::tempdir().unwrap();
@@ -175,10 +175,12 @@ fn before_the_command_stderr_lists_what_is_measured() {
     let started = console.find("\nout\n").expect("the command's own line");
     assert!(ready < started, "{console}");
     let before = &console[..ready];
-    for (kind, fidelity) in [("power ", "stated"), ("intensity ", "stated"), ("forecast ", "stated")] {
+    for (kind, fidelity) in [("power ", "stated"), ("intensity ", "stated")] {
         let line = before.lines().find(|line| line.starts_with(&format!("CarbonTracker: {kind}"))).unwrap_or_else(|| panic!("{kind}: {console}"));
         assert!(line.contains(fidelity), "{line}");
     }
+    // Nothing in a CLI run reads the forecast.
+    assert!(!before.contains("CarbonTracker: forecast "), "{console}");
 }
 
 /// AC/FE-51, AC/RUN-22
@@ -339,33 +341,36 @@ fn check_shows_how_each_value_is_obtained_and_where_the_key_came_from() {
         .success()
         .stderr(contains("secret").not());
     let stdout = stdout(&check);
-    for row in [
-        "  power      stated     system\n",
-        "  intensity  stated     the given value\n",
-        "  forecast   stated     the given value, 24 h\n",
-        "  key        electricity_maps …a1b2, from CARBONTRACKER_EM_KEY\n",
-        "  providers  static\n",
+    assert!(stdout.starts_with("Emitting "), "what the view shows, after one reading: {stdout}");
+    for (label, parts) in [
+        ("power", ["10.0 W", "stated"]),
+        ("intensity", ["100 gCO2eq/kWh", "stated"]),
+        ("forecast", ["24 h ahead", "stated"]),
+        ("key", ["…a1b2", "electricity_maps, from CARBONTRACKER_EM_KEY"]),
     ] {
-        assert!(stdout.contains(row), "{row:?} missing: {stdout}");
+        let row = row(&stdout, label);
+        assert!(parts.iter().all(|part| row.contains(part)), "{label}: {row:?} in {stdout}");
     }
-    assert!(stdout.find("  key ") < stdout.find("  providers "), "key above providers: {stdout}");
     assert!(!stdout.contains("secret"), "{stdout}");
-    assert!(!stdout.contains("static: serving"), "verdicts only with -v: {stdout}");
+    assert!(!stdout.contains("serving"), "verdicts only with -v: {stdout}");
     assert!(!stdout.contains('\x1b'), "no colour when piped: {stdout:?}");
     assert!(files(dir.path()).is_empty(), "check writes nothing: {:?}", files(dir.path()));
+}
+
+/// The row of `stdout` that `label` starts.
+fn row<'a>(stdout: &'a str, label: &str) -> &'a str {
+    stdout.lines().find(|line| line.trim_start().starts_with(&format!("{label} "))).unwrap_or_else(|| panic!("no {label} row: {stdout}"))
 }
 
 /// AC/FE-60
 #[test]
 fn check_verbose_adds_every_verdict() {
     let dir = tempfile::tempdir().unwrap();
-    pinned(dir.path())
-        .args(["check", "-v"])
-        .assert()
-        .success()
-        .stdout(contains("  power      stated     system"))
-        .stdout(contains("static: serving"))
-        .stdout(contains("ip-geolocation: not asked for"));
+    let check = pinned(dir.path()).args(["check", "-v"]).assert().success();
+    let stdout = stdout(&check);
+    assert!(row(&stdout, "power").contains("stated"), "{stdout}");
+    assert!(row(&stdout, "static").contains("serving"), "{stdout}");
+    assert!(row(&stdout, "ip-geolocation").contains("not asked"), "{stdout}");
 }
 
 /// Writes the config file `init` would, with `mode`.
@@ -397,9 +402,10 @@ fn a_flag_key_wins_over_the_environment_which_wins_over_the_config_file() {
         }
         stdout(&command.arg("check").assert().success())
     };
-    assert!(check(true, true).contains("electricity_maps …3333, from --api-keys"));
-    assert!(check(true, false).contains("electricity_maps …2222, from CARBONTRACKER_EM_KEY"));
-    assert!(check(false, false).contains("electricity_maps …1111, from the config file"));
+    let key = |stdout: String| row(&stdout, "key").to_owned();
+    assert!(key(check(true, true)).contains("…3333") && key(check(true, true)).contains("from --api-keys"));
+    assert!(key(check(true, false)).contains("…2222") && key(check(true, false)).contains("from CARBONTRACKER_EM_KEY"));
+    assert!(key(check(false, false)).contains("…1111") && key(check(false, false)).contains("from the config file"));
 }
 
 /// AC/FE-43
@@ -427,8 +433,8 @@ fn init_saves_the_key_from_stdin_then_checks() {
         .success()
         // Nothing answers at the pinned address, so the key is saved unchecked.
         .stderr(contains("saved unchecked to"))
-        .stdout(contains("  power      stated     system"))
-        .stdout(contains("  key        electricity_maps …c3d4, from the config file"))
+        .stdout(contains("Emitting "))
+        .stdout(contains("…c3d4").and(contains("electricity_maps, from the config file")))
         .stdout(contains("secret").not());
 
     let path = dir.path().join("config/carbontracker/config.toml");
@@ -438,7 +444,7 @@ fn init_saves_the_key_from_stdin_then_checks() {
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
     }
-    pinned(dir.path()).arg("check").assert().stdout(contains("…c3d4, from the config file"));
+    pinned(dir.path()).arg("check").assert().stdout(contains("…c3d4").and(contains("electricity_maps, from the config file")));
 }
 
 /// AC/FE-55
@@ -673,6 +679,28 @@ fn report_names_a_file_it_cannot_read_and_goes_on() {
         .assert()
         .success()
         .stdout(contains("Total (1 run)").and(contains("broken.ct could not be read")));
+}
+
+/// AC/FE-86
+#[test]
+fn report_without_a_path_reads_the_log_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    tracked(dir.path(), "exit 0");
+    let run = bare(dir.path()).arg("report").assert().success();
+    assert!(stdout(&run).contains("Total (1 run)"), "{}", stdout(&run));
+
+    std::fs::rename(dir.path().join("logs"), dir.path().join("out")).unwrap();
+    let run = bare(dir.path()).args(["--log-dir", "out", "report"]).assert().success();
+    assert!(stdout(&run).contains("Total (1 run)"), "{}", stdout(&run));
+}
+
+/// AC/FE-86
+#[test]
+fn report_without_a_path_or_log_folder_asks_for_a_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = bare(dir.path()).arg("report").assert().code(2);
+    let stderr = stderr(&run);
+    assert!(stderr.contains("./logs") && stderr.contains("carbontracker report PATH"), "{stderr}");
 }
 
 /// AC/FE-58

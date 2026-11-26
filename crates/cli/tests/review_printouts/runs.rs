@@ -596,7 +596,7 @@ fn nothing_found_probe() -> Vec<(&'static str, Verdict)> {
         ("macmon", Verdict::Declined("macmon: IOReport has no power channel".to_owned())),
         ("powermetrics", Verdict::Declined("access denied: sudo powermetrics needs a cached credential".to_owned())),
         ("generic-cpu", Verdict::Serving(vec!["Apple M2 Pro (Cpu/DeviceTotal, modelled)".to_owned()])),
-        ("ip-geolocation", Verdict::Declined("ipinfo.io timed out".to_owned())),
+        ("ip-geolocation", Verdict::Declined("ipinfo.io did not answer in time".to_owned())),
         ("electricity-maps", Verdict::Declined("no Electricity Maps key".to_owned())),
         ("country-average", Verdict::Declined("no location".to_owned())),
         ("global-average", Verdict::Serving(vec!["intensity (world average, modelled)".to_owned()])),

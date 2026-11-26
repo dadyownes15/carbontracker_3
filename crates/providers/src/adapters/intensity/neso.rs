@@ -189,7 +189,7 @@ fn blocking_latest(base_url: &str, target: Target) -> Result<Sample, ProviderErr
 }
 
 fn unreachable(error: reqwest::Error) -> ProviderError {
-    ProviderError::Unavailable(format!("NESO: {error}"))
+    ProviderError::Unavailable(crate::adapters::http::failure("NESO", &error))
 }
 
 fn not_json() -> ProviderError {

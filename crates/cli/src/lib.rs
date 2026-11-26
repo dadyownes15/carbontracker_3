@@ -1,5 +1,5 @@
 //! `carbontracker [options] <command>` tracks a whole command;
-//! `carbontracker check` shows what would be measured; `carbontracker init`
+//! `carbontracker check` shows the available sources; `carbontracker init`
 //! saves an API key, or attaches carbontracker to a Slurm script;
 //! `carbontracker report` sums the runs recorded.
 //!
@@ -42,7 +42,7 @@ where
         Action::Init { what: None } => commands::init(&args),
         Action::Init { what: Some(InitWhat::Slurm { script }) } => commands::init_slurm(&args, script.as_deref()),
         Action::Report { spans, csv, output, project, paths } => {
-            commands::report(spans, csv, output, project.as_deref(), paths)
+            commands::report(spans, csv, output, project.as_deref(), paths, args.log_folder())
         }
         Action::Run(command) => commands::track(&args, &command),
     };

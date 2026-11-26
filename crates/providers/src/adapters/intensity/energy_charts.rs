@@ -95,7 +95,7 @@ fn params(asked_as: &str) -> [(&'static str, &str); 1] {
 }
 
 fn unreachable(error: reqwest::Error) -> ProviderError {
-    ProviderError::Unavailable(format!("Energy-Charts: {error}"))
+    ProviderError::Unavailable(crate::adapters::http::failure("Energy-Charts", &error))
 }
 
 /// The error for a status that refuses the request, if it does.

@@ -57,7 +57,7 @@ def test_carbontracker_2s_example_loop_runs_unchanged(capsys):
     session = tracker.stop()
 
     out = capsys.readouterr().out
-    assert "CarbonTracker: power " in out and "CarbonTracker: intensity  world average" in out
+    assert "CarbonTracker: power " in out and "CarbonTracker: intensity  stated     the given value (static)" in out
     assert "CarbonTracker: ready. Tracking started." in out
     assert "CarbonTracker: grid world average, 100 gCO2eq/kWh avg (stated)" in out
     assert "Predicted consumption for 3 epoch(s):" in out

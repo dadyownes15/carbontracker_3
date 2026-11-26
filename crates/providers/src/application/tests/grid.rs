@@ -250,7 +250,7 @@ async fn a_stated_global_or_pinned_intensity_touches_no_network() {
 #[tokio::test]
 async fn an_ip_service_that_is_slow_failing_or_countryless_falls_to_the_global_average() {
     for (answer, why) in [
-        (ok(IPINFO).set_delay(Duration::from_secs(5)), "timed out"),
+        (ok(IPINFO).set_delay(Duration::from_secs(5)), "ipinfo.io did not answer in time"),
         (ResponseTemplate::new(500), "500"),
         (ok(r#"{"ip":"127.0.0.1","bogon":true}"#), "no country"),
     ] {
@@ -286,7 +286,7 @@ async fn coordinates_no_source_covers_fall_to_the_global_average_without_a_reque
 
     let resolution = probe(&server, config(Some(open_sea), false)).await;
 
-    for candidate in ["electricity-maps", "energinet (direct CO2)", "neso (direct CO2)", "energy-charts (CO2eq)", "country-average"] {
+    for candidate in ["electricity-maps", "energinet", "neso (direct CO2)", "energy-charts (CO2eq)", "country-average"] {
         declined(&resolution, candidate);
     }
     assert!(serving(&resolution, "global-average"));

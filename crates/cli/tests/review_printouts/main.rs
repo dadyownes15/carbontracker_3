@@ -28,7 +28,7 @@ fn review_printouts() {
             about: "carbontracker: output on stderr, the summary layout.",
             groups: vec![
                 Group { title: "run", about: "carbontracker [OPTIONS] <COMMAND>…", cases: run },
-                Group { title: "check", about: "carbontracker check: what would be measured, and each key.", cases: check() },
+                Group { title: "check", about: "carbontracker check: the available sources, and each key.", cases: check() },
                 Group { title: "init", about: "carbontracker init: saving the Electricity Maps key.", cases: init() },
                 Group { title: "report", about: "carbontracker report: the runs recorded, summed, on stdout or saved as CSV.", cases: report() },
                 Group { title: "help & errors", about: "Help, and arguments clap or the CLI refuses.", cases: help_and_errors() },

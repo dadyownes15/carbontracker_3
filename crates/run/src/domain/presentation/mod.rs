@@ -11,6 +11,7 @@
 
 pub mod console;
 pub mod events;
+pub mod paint;
 pub mod report;
 
 use std::sync::LazyLock;

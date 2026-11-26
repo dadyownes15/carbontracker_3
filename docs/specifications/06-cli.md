@@ -7,7 +7,7 @@ with the Python package ([10](10-python.md)).
 
 ```
 carbontracker [OPTIONS] [--project NAME] [--name TEXT] <COMMAND>...   track a whole command
-carbontracker check [OPTIONS]                show what would be measured
+carbontracker check [OPTIONS]                show the available sources
 carbontracker init                           save an API key (a menu on a terminal)
 carbontracker init slurm [SCRIPT]            run a Slurm script under carbontracker
 carbontracker report [--spans] [--csv [-o FILE]] [--project NAME] [PATH]...   sum the runs recorded
@@ -156,24 +156,23 @@ for, with its reason, and the selected row's full reason at the bottom. <!-- AC/
 text, so it stays in the terminal's scrollback. <!-- AC/FE-80 -->
 
 **The view opens only when stdin and stdout are both terminals.** Otherwise
-`check` prints the rows below and exits. <!-- AC/FE-81 -->
+`check` runs the view unseen until its first reading, or ten seconds without
+one, prints what it shows as it would on closing, and exits 0. Both ways share
+one rendering. <!-- AC/FE-81 -->
 
-**Piped, `check` prints to stdout one row per value it would use**: power, location,
-intensity and forecast, each with how it is obtained (`live`, `stated`
-or `fallback`, which covers modelled and assumed values) and what it is: the power components, the place, the
-kind of intensity and forecast. Power gets one row per way of obtaining it.
-Then, for each keyed service, where its key came from, and the providers
-serving. It exits 0. A location row is left out when the intensity is
-stated. <!-- AC/FE-52 -->
+**Below the kinds, each key given has a line**: its hint, its service and
+where it came from (`--api-keys`, `CARBONTRACKER_EM_KEY` or the config file).
+How a value is obtained is `live`, `stated` or `fallback`, which covers
+modelled and assumed values. <!-- AC/FE-52 -->
 
-**A key whose provider declined is warned about** below the rows, and below
-the lines of the full-screen view with or without `-v`, naming the key by its
+**A key whose provider declined is warned about** below the lines, with or
+without `-v`, naming the key by its
 hint and giving the reason the provider declined. It points to
 `carbontracker init` only when the key was refused; when the service could
 not be reached or asked, a new key would not help, so it does not. <!-- AC/FE-61 -->
 
 **`check -v` adds every candidate's verdict** (serving, or why not) after the
-rows. <!-- AC/FE-60 -->
+lines. <!-- AC/FE-60 -->
 
 **A key is shown only by its last four characters**, never whole. <!-- AC/FE-53 -->
 
@@ -189,17 +188,18 @@ for as long as it is open, and nothing else. <!-- AC/FE-54 -->
 
 ## `init`
 
-**On a terminal, `init` offers a menu**: add or change the Electricity Maps
-key (naming the saved one by its hint), attach carbontracker to a Slurm
-script, check what would be measured, or quit. It comes back to the menu
-after each until the user quits. <!-- AC/FE-65 -->
+**On a terminal, `init` offers a menu**: check the available sources, add
+or change the Electricity Maps key (naming the saved one by its hint; a saved
+key can also be removed from below the key field), attach carbontracker to a
+Slurm script, or quit. It comes back to the menu after each until the user
+quits. <!-- AC/FE-65 -->
 
-**On a terminal, `init` runs full screen**: the key is typed masked, the
+**On a terminal, `init` runs full screen**: the key shows as it is typed, the
 Slurm script is picked from a list or typed as a path, the wrapper is shown
 before it is written, and `check` opens in its view. When `init` closes, what
 it did is printed to stdout. <!-- AC/FE-82 -->
 
-**`init` asks for the Electricity Maps key**: with a hidden prompt on a
+**`init` asks for the Electricity Maps key**: in the full screen on a
 terminal, otherwise one line from stdin. It is never a flag, so it never lands
 in shell history. <!-- AC/FE-55 -->
 
@@ -215,6 +215,9 @@ unchecked and trying again. <!-- AC/FE-68 -->
 
 **`init` saves the key, then runs `check`** so the user sees it take effect,
 including the warning when the key does not reach this machine's zone. <!-- AC/FE-9 -->
+
+**Removing the key deletes it from the config file** and says so; runs then
+use the open sources and the averages. <!-- AC/FE-87 -->
 
 **The config file is readable by its owner only** (mode `600` on Unix). <!-- AC/FE-56 -->
 
@@ -255,6 +258,10 @@ those already wrapped. On a terminal it asks which to wrap; otherwise it exits
 **`report` reads every `.ct` file under the paths it is given**, searching
 folders recursively, and prints to stdout, or saves CSV with `--csv`. It reads only what runs recorded:
 it never measures, predicts or calls a provider. <!-- AC/FE-21 -->
+
+**Without a path or `--project`, `report` reads the log folder runs write
+to**, `./logs` or the folder given with `--log-dir`. If that folder is not
+there it exits 2, naming the folder and asking for a path. <!-- AC/FE-86 -->
 
 **The total is what was measured.** It sums the `session` line of each run.
 A run without one (crashed or killed) is listed as incomplete and left out

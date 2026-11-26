@@ -4,7 +4,7 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Cell, Paragraph, Row, Table, TableState, Wrap};
 use ratatui::Frame;
 
@@ -67,51 +67,78 @@ impl CheckView {
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, tick: usize) {
         let kinds = self.live.lines();
         let width = value_width(&kinds);
-        let mut lines = vec![self.headline(tick), Line::from("")];
-        for line in &kinds {
-            let mut spans = vec![Span::styled(format!("{:<10}", line.label), dim())];
-            match line.value.as_str() {
-                "…" if !self.live.started() => {
-                    spans.push(Span::styled(format!("{} probing…", SPINNER[tick % SPINNER.len()]), dim()));
-                }
-                "none" if line.how.is_none() => {
-                    spans.push(Span::styled("none", Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)));
-                    spans.push(Span::styled(format!(" · {}", line.by), dim()));
-                }
-                value => {
-                    spans.push(Span::styled(format!("{value:<width$} "), Style::new().add_modifier(Modifier::BOLD)));
-                    if let Some(how) = line.how {
-                        spans.push(Span::styled(format!("{:<9}", how.word()), Style::new().fg(colour(how))));
+        // The last column takes what the others leave; its text is wrapped to it.
+        let by_width = usize::from(area.width).saturating_sub(10 + width + 1 + 10).max(1);
+        let rows: Vec<Row> = kinds
+            .iter()
+            .map(|line| {
+                let (value, how) = match line.value.as_str() {
+                    "…" if !self.live.started() => {
+                        (Span::styled(format!("{} probing…", SPINNER[tick % SPINNER.len()]), dim()), Span::raw(""))
                     }
-                    spans.push(Span::styled(format!(" {}", line.by), dim()));
+                    "none" if line.how.is_none() => {
+                        (Span::styled("none", Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)), Span::raw(""))
+                    }
+                    value => (
+                        Span::styled(value.to_owned(), Style::new().add_modifier(Modifier::BOLD)),
+                        line.how.map_or(Span::raw(""), |how| Span::styled(how.word(), Style::new().fg(colour(how)))),
+                    ),
+                };
+                let mut by: Vec<Line> =
+                    wrap(&line.by, by_width).into_iter().map(|text| Line::from(Span::styled(text, dim()))).collect();
+                if let Some(failure) = &line.failure {
+                    let red = Style::new().fg(Color::Red);
+                    by.extend(wrap(&format!("! failed: {failure}"), by_width).into_iter().map(|text| Line::styled(text, red)));
                 }
-            }
-            lines.push(Line::from(spans));
-            if let Some(failure) = &line.failure {
-                lines.push(Line::from(vec![
-                    Span::raw(" ".repeat(10)),
-                    Span::styled(format!("! failed: {failure}"), Style::new().fg(Color::Red)),
-                ]));
-            }
-        }
+                let height = by.len().max(1) as u16;
+                Row::new([
+                    Cell::from(Span::styled(line.label, dim())),
+                    Cell::from(value),
+                    Cell::from(how),
+                    Cell::from(Text::from(by)),
+                ])
+                .height(height)
+            })
+            .collect();
+        let kinds_height: u16 = kinds
+            .iter()
+            .map(|line| {
+                let failure = line.failure.as_ref().map_or(0, |failure| wrap(&format!("! failed: {failure}"), by_width).len());
+                (wrap(&line.by, by_width).len().max(1) + failure) as u16
+            })
+            .sum();
+        // The same columns as the printed snapshot: label, value, how, then the sources.
+        let kind_widths =
+            [Constraint::Length(10), Constraint::Length(width as u16 + 1), Constraint::Length(10), Constraint::Fill(1)];
+
+        let mut rest: Vec<Line> = Vec::new();
         for warning in self.live.warnings() {
-            lines.push(Line::from(""));
+            rest.push(Line::from(""));
             for (index, text) in warning.lines().enumerate() {
                 let style = if index == 0 { Style::new().fg(Color::Yellow) } else { dim() };
-                lines.push(Line::from(Span::styled(text.to_owned(), style)));
+                rest.push(Line::from(Span::styled(text.to_owned(), style)));
             }
         }
         if !self.verbose {
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("check -v lists every candidate and why it was or wasn't chosen", dim())));
-            frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
+            rest.push(Line::from(""));
+            rest.push(Line::from(Span::styled("check -v lists every candidate and why it was or wasn't chosen", dim())));
+        }
+        let rest_height = rest.len() as u16 + 1;
+        let [head, kinds_area, rest_area, table, reason] = Layout::vertical([
+            Constraint::Length(2),
+            Constraint::Length(kinds_height),
+            Constraint::Length(rest_height),
+            Constraint::Min(if self.verbose { 3 } else { 0 }),
+            Constraint::Length(if self.verbose { 3 } else { 0 }),
+        ])
+        .areas(area);
+        frame.render_widget(Paragraph::new(vec![self.headline(tick), Line::from("")]), head);
+        frame.render_widget(Table::new(rows, kind_widths).column_spacing(0), kinds_area);
+        frame.render_widget(Paragraph::new(rest).wrap(Wrap { trim: false }), rest_area);
+        if !self.verbose {
             return;
         }
 
-        let top = lines.len() as u16 + 1;
-        let [summary, table, reason] =
-            Layout::vertical([Constraint::Length(top), Constraint::Min(3), Constraint::Length(3)]).areas(area);
-        frame.render_widget(Paragraph::new(lines), summary);
         let rows = self.live.candidates.iter().map(|candidate| {
             let style = match candidate.status {
                 Status::Serving => Style::new().fg(Color::Green),
@@ -147,6 +174,30 @@ impl CheckView {
         }
         Line::from(Span::styled(text, Style::new().add_modifier(Modifier::BOLD)))
     }
+}
+
+/// `text` broken into lines of at most `width` characters: at its own line
+/// breaks, then after a comma or a space, and inside a word only when the
+/// word alone is too long.
+fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let mut current = String::new();
+        for word in line.split_inclusive(' ') {
+            if current.chars().count() + word.trim_end().chars().count() > width && !current.is_empty() {
+                out.push(current.trim_end().to_owned());
+                current.clear();
+            }
+            current.push_str(word);
+            while current.trim_end().chars().count() > width {
+                let head: String = current.chars().take(width).collect();
+                current = current.chars().skip(width).collect();
+                out.push(head);
+            }
+        }
+        out.push(current.trim_end().to_owned());
+    }
+    out
 }
 
 fn colour(how: How) -> Color {
@@ -219,6 +270,39 @@ pub(crate) mod tests {
         assert!(!screen.contains("powermetrics"), "candidates only with -v: {screen}");
         tx.send(readout(&[(3, 5, 100.0)])).unwrap();
         assert!(draw(&mut view).contains("Emitting 10.0 gCO2eq/h right now"));
+    }
+
+    /// AC/FE-77
+    #[test]
+    fn a_long_power_row_stays_in_its_column_on_a_narrow_screen() {
+        let (mut view, tx) = view(false);
+        let watts = |provider, by, domain| power(provider, by, domain, SampleKind::Instant, Fidelity::Measured);
+        tx.send(Msg::Started {
+            sources: vec![
+                watts(1, "macmon", PowerDomain::System),
+                watts(2, "ioreport", PowerDomain::Cpu),
+                watts(3, "ioreport", PowerDomain::Gpu),
+                watts(4, "ioreport", PowerDomain::Ane),
+                watts(5, "ioreport", PowerDomain::Ram),
+                intensity(6, "energinet", Fidelity::Measured),
+            ],
+            forecast: Some(forecast()),
+        })
+        .unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(64, 20)).unwrap();
+        view.pump();
+        terminal.draw(|frame| view.draw(frame, frame.area(), 0)).unwrap();
+        let screen = text(&terminal);
+        let rows: Vec<&str> = screen.lines().collect();
+        let power = rows.iter().position(|row| row.starts_with("power")).expect(&screen);
+        let location = rows.iter().position(|row| row.starts_with("location")).expect(&screen);
+        let start = |row: &str| row.chars().take_while(|c| *c == ' ').count();
+        let column = rows[power].chars().collect::<String>().find("system").map(|byte| rows[power][..byte].chars().count()).expect(&screen);
+        assert!(location > power + 2, "the ioreport parts take more than one line: {screen}");
+        for row in &rows[power + 1..location] {
+            assert_eq!(start(row), column, "every part starts in the column: {screen}");
+        }
+        assert!(screen.contains("ram"), "nothing is cut off: {screen}");
     }
 
     /// AC/FE-77

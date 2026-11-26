@@ -71,9 +71,10 @@ publishes no other figure for a region, not even afterwards. <!-- AC/OPEN-38 -->
 
 **Every open source is `Measured` and `Held`.** <!-- AC/OPEN-17 -->
 
-**The candidate's name in the resolution says the publisher's basis**, e.g.
-`energinet (direct CO2)`, since public sources differ in what they count and
-Electricity Maps is asked for lifecycle figures. <!-- AC/OPEN-18 -->
+**NESO's and Energy-Charts' candidate names say the publisher's basis**,
+e.g. `neso (direct CO2)`, since public sources differ in what they count and
+Electricity Maps is asked for lifecycle figures. Energinet's candidate is
+named `energinet` alone. <!-- AC/OPEN-18 -->
 
 | Candidate | Cooldown |
 |---|---|

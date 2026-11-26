@@ -5,8 +5,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use carbontracker::{Observation, PowerDomain, SampleKind, SourceDescription, SourceId, Timestamp};
+use carbontracker::{Observation, SampleKind, SourceDescription, SourceId, Timestamp};
 use carbontracker_providers::Verdict;
+use carbontracker_run::presentation::PowerPart;
 use carbontracker_run::{presentation, ForecastSource};
 
 use crate::commands::{How, hours, key_warning};
@@ -79,7 +80,8 @@ pub struct KindLine {
     /// The value, `…` while waiting for it, or `none`.
     pub value: String,
     pub how: Option<How>,
-    /// Who serves it, or what to do when nothing does.
+    /// Who serves it, or what to do when nothing does; one line per
+    /// provider.
     pub by: String,
     /// Why its last read failed, naming the source, until it reads again.
     pub failure: Option<String>,
@@ -92,6 +94,8 @@ pub struct KeyNote {
     /// The key's last four characters, e.g. `…1234`.
     pub hint: String,
     pub candidate: &'static str,
+    /// Where it came from, e.g. `the config file`.
+    pub origin: String,
 }
 
 /// The latest a source reported.
@@ -234,8 +238,8 @@ impl Live {
         Some(self.watts()? * self.pue * self.intensity()? / 1000.0)
     }
 
-    /// Power, location, intensity and forecast; the location is left out
-    /// when the intensity is stated.
+    /// Power, location, intensity and forecast, then each key given; the
+    /// location is left out when the intensity is stated.
     pub fn lines(&self) -> Vec<KindLine> {
         if !self.started {
             return ["power", "location", "intensity", "forecast"]
@@ -250,6 +254,13 @@ impl Live {
         }
         lines.push(self.intensity_line());
         lines.push(self.forecast_line());
+        lines.extend(self.keys.iter().map(|key| KindLine {
+            label: "key",
+            value: key.hint.clone(),
+            how: None,
+            by: format!("{}, from {}", key.service, key.origin),
+            failure: None,
+        }));
         lines
     }
 
@@ -263,38 +274,16 @@ impl Live {
             return Self::none("power");
         }
         let how = sources.iter().map(|source| How::of(source.description.fidelity())).max();
-        // Each provider once, naming each of its components with its total.
-        let mut groups: Vec<(&str, Vec<Component>)> = Vec::new();
-        for source in &sources {
-            let SourceDescription::Power { domain, .. } = source.description else { continue };
-            let watts = self.value(source);
-            let index = match groups.iter().position(|(name, _)| *name == source.served_by) {
-                Some(index) => index,
-                None => {
-                    groups.push((source.served_by, Vec::new()));
-                    groups.len() - 1
-                }
-            };
-            let components = &mut groups[index].1;
-            match components.iter_mut().find(|(served, _)| *served == domain) {
-                Some((_, total)) => *total = total.zip(watts).map(|(a, b)| a + b),
-                None => components.push((domain, watts)),
-            }
-        }
-        let by = groups
+        let parts: Vec<PowerPart> = sources
             .iter()
-            .map(|(name, components)| {
-                let parts: Vec<String> = components
-                    .iter()
-                    .map(|(domain, watts)| match watts {
-                        Some(watts) => format!("{domain} {watts:.1} W"),
-                        None => format!("{domain} …"),
-                    })
-                    .collect();
-                format!("{} ({name})", parts.join(", "))
+            .filter_map(|source| match source.description {
+                SourceDescription::Power { domain, fidelity, .. } => {
+                    Some(PowerPart { provider: source.served_by, domain, fidelity, watts: self.value(source) })
+                }
+                SourceDescription::Intensity { .. } => None,
             })
-            .collect::<Vec<_>>()
-            .join(" · ");
+            .collect();
+        let by = presentation::power_what(&parts, true);
         let failure = self.failures(&sources);
         let value = match self.watts() {
             Some(watts) => stale(format!("{watts:.1} W"), failure.is_some()),
@@ -341,8 +330,9 @@ impl Live {
             Some(g) => stale(format!("{g:.0} gCO2eq/kWh"), failure.is_some()),
             None => "…".to_owned(),
         };
-        let how = Some(How::of(source.description.fidelity()));
-        KindLine { label: "intensity", value, how, by: named(source), failure }
+        let SourceDescription::Intensity { location, fidelity } = &source.description else { return Self::none("intensity") };
+        let by = presentation::provided(presentation::intensity_what(location, *fidelity), Some(source.served_by));
+        KindLine { label: "intensity", value, how: Some(How::of(*fidelity)), by, failure }
     }
 
     fn forecast_line(&self) -> KindLine {
@@ -351,7 +341,7 @@ impl Live {
             label: "forecast",
             value: format!("{} h ahead", hours(forecast.horizon)),
             how: Some(How::of(forecast.fidelity)),
-            by: format!("({})", forecast.served_by),
+            by: presentation::provided(presentation::forecast_what(forecast), Some(forecast.served_by)),
             failure: None,
         }
     }
@@ -388,7 +378,11 @@ impl Live {
         let width = value_width(&lines);
         for line in lines {
             let how = line.how.map_or("", How::word);
-            out.push_str(&format!("  {:<10} {:<width$} {:<9} {}\n", line.label, line.value, how, line.by));
+            let mut by = line.by.lines();
+            out.push_str(&format!("  {:<10} {:<width$} {:<9} {}\n", line.label, line.value, how, by.next().unwrap_or("")));
+            for more in by {
+                out.push_str(&format!("  {:<10} {:<width$} {:<9} {more}\n", "", "", ""));
+            }
             if let Some(failure) = &line.failure {
                 out.push_str(&format!("  {:<10} ! failed: {failure}\n", ""));
             }
@@ -421,21 +415,11 @@ fn stale(value: String, failed: bool) -> String {
     if failed { format!("{value} (stale)") } else { value }
 }
 
-/// A power component and its watts, once read.
-type Component = (PowerDomain, Option<f64>);
 
 /// A source by what it reads, marked with its provider: `gpu (nvml)`,
-/// `DK-DK2 (electricity-maps)`, `DK-DK2 direct CO2 (energinet)`.
+/// `DK-DK2 (electricity-maps)`, `GB direct CO2 (neso)`.
 fn named(source: &Source) -> String {
-    let what = match &source.description {
-        SourceDescription::Power { domain, .. } => domain.to_string(),
-        SourceDescription::Intensity { location, .. } => presentation::grid(location),
-    };
-    // A candidate's own qualifier, as in `energinet (direct CO2)`, goes with the source.
-    match source.served_by.split_once(" (") {
-        Some((name, qualifier)) => format!("{what} {} ({name})", qualifier.trim_end_matches(')')),
-        None => format!("{what} ({})", source.served_by),
-    }
+    presentation::provided(presentation::part(&source.description), Some(source.served_by))
 }
 
 impl Latest {
@@ -562,7 +546,7 @@ pub(crate) mod tests {
             label: "power",
             value: "210.0 W".into(),
             how: Some(How::Live),
-            by: "cpu 50.0 W (rapl) · gpu 160.0 W (nvml)".into(),
+            by: "cpu 50.0 W (rapl)\ngpu 160.0 W (nvml)".into(),
             failure: None,
         });
         assert_eq!(line("location").value, "DK-DK2");
@@ -573,7 +557,7 @@ pub(crate) mod tests {
             label: "forecast",
             value: "24 h ahead".into(),
             how: Some(How::Fallback),
-            by: "(projection)".into(),
+            by: "projects the current intensity (projection)".into(),
             failure: None,
         });
     }
@@ -609,7 +593,7 @@ pub(crate) mod tests {
         });
         live.apply(Msg::Readout(Arc::new(HashMap::from(outcomes))));
         let power = live.lines().into_iter().find(|line| line.label == "power").unwrap();
-        assert_eq!(power.by, "cpu 20.0 W, gpu 8.0 W (ioreport) · system … (macmon)");
+        assert_eq!(power.by, "cpu 20.0 W, gpu 8.0 W (ioreport)\nsystem … (macmon)");
     }
 
     #[test]
@@ -661,6 +645,10 @@ pub(crate) mod tests {
         let plain = live.snapshot(false);
         assert!(plain.starts_with("Emitting 60.0 gCO2eq/h right now"), "{plain}");
         assert!(plain.contains("  intensity  200 gCO2eq/kWh       live      DK-DK2 (electricity-maps)\n"), "{plain}");
+        let power: Vec<&str> = plain.lines().skip_while(|line| !line.trim_start().starts_with("power")).take(2).collect();
+        let column = power[0].find("cpu").expect("the first provider on the power line");
+        assert_eq!(power[1].find("gpu"), Some(column), "each provider on its own line, in one column: {plain}");
+        assert!(power[1][..column].trim().is_empty(), "{plain}");
         assert!(!plain.contains("powermetrics"), "candidates only with -v: {plain}");
         assert!(!plain.contains('\x1b'));
         let verbose = live.snapshot(true);
@@ -668,7 +656,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn em_key() -> KeyNote {
-        KeyNote { service: "electricity_maps", hint: "…1234".into(), candidate: "electricity-maps" }
+        KeyNote { service: "electricity_maps", hint: "…1234".into(), candidate: "electricity-maps", origin: "the config file".into() }
     }
 
     /// AC/FE-61
@@ -691,12 +679,12 @@ pub(crate) mod tests {
     fn a_stated_location_names_no_provider() {
         let mut live = Live::new(1.0);
         live.apply(Msg::Decided("stated-location", Verdict::Serving(vec!["DK-DK2".into()])));
-        live.apply(Msg::Started { sources: vec![intensity(3, "energinet (direct CO2)", Fidelity::Measured)], forecast: Some(forecast()) });
+        live.apply(Msg::Started { sources: vec![intensity(3, "energinet", Fidelity::Measured)], forecast: Some(forecast()) });
         let lines = live.lines();
         let location = lines.iter().find(|line| line.label == "location").unwrap();
         assert_eq!((location.value.as_str(), location.how, location.by.as_str()), ("DK-DK2", Some(How::Stated), ""));
         let intensity = lines.iter().find(|line| line.label == "intensity").unwrap();
-        assert_eq!(intensity.by, "DK-DK2 direct CO2 (energinet)", "the candidate's own qualifier stays with the source");
+        assert_eq!(intensity.by, "DK-DK2 (energinet)");
     }
 
     /// AC/FE-61
