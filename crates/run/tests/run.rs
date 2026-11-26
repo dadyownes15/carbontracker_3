@@ -1051,10 +1051,10 @@ fn console_for(grid: GridConfig) -> String {
 /// AC/RUN-23
 #[test]
 fn a_world_average_nobody_asked_for_says_why() {
-    let coordinates = GridLocation::Coordinates { latitude: 55.68, longitude: 12.57 };
+    let coordinates = GridLocation::Coordinates { latitude: 0.0, longitude: -150.0 };
     let text = console_for(GridConfig { location: Some(coordinates), ..GridConfig::default() });
     let warning = text.lines().find(|line| line.contains("WARNING - the world-average grid")).unwrap_or_else(|| panic!("{text}"));
-    assert!(warning.contains("(55.68, 12.57)") && warning.contains("no key"), "{warning}");
+    assert!(warning.contains("(0.00, -150.00)") && warning.contains("no key"), "{warning}");
     assert!(warning.contains("country table"), "{warning}");
     assert!(text.find("ready.").unwrap() < text.find(warning).unwrap(), "{text}");
 
