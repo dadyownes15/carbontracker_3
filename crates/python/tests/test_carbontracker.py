@@ -57,7 +57,7 @@ def test_carbontracker_2s_example_loop_runs_unchanged(capsys):
     session = tracker.stop()
 
     out = capsys.readouterr().out
-    assert "CarbonTracker: power " in out and "CarbonTracker: intensity  world average" in out
+    assert "CarbonTracker: power " in out and "CarbonTracker: intensity  stated     the given value (static)" in out
     assert "CarbonTracker: ready. Tracking started." in out
     assert "CarbonTracker: grid world average, 100 gCO2eq/kWh avg (stated)" in out
     assert "Predicted consumption for 3 epoch(s):" in out
@@ -158,7 +158,7 @@ def test_verbose_zero_still_prints_an_error(capsys):
 # AC/OUT-28
 def test_verbose_zero_prints_the_reports_warnings_without_the_closing_block(capsys):
     # The country table's figure is modelled, so the report warns of an estimate.
-    CarbonTracker(verbose=0, country="DK", power=10.0, update_interval=60).stop()
+    CarbonTracker(verbose=0, country="JP", power=10.0, update_interval=60).stop()
     out = capsys.readouterr().out
     assert "WARNING - part of this total is an estimate" in out, out
     assert "Actual consumption" not in out and "Finished monitoring." not in out, out

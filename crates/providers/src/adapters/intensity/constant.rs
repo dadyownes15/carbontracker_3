@@ -19,4 +19,5 @@ pub(crate) fn constant_intensity(
     )
 }
 
-pub(crate) const WORLD_AVERAGE_G_CO2_PER_KWH: f64 = 475.0;
+/// The world-average grid intensity, in gCO2eq/kWh.
+pub const WORLD_AVERAGE_G_CO2_PER_KWH: f64 = 475.0;

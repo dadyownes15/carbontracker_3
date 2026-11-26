@@ -23,6 +23,7 @@ core-foundation = "0.10"
 core-foundation-sys = "0.8"
 
 [dev-dependencies]
+libloading = "0.8"
 futures = "0.3.34"
 tempfile = "3"
 tokio = { version = "1.53.1", features = ["test-util"] }

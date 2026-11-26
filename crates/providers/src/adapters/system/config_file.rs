@@ -111,7 +111,20 @@ pub fn save(path: &Path, service: KeyedService, key: &str) -> Result<(), String>
     // Under the name shown, replacing any other spelling of it.
     file.keys.retain(|name, _| KeyedService::from_name(name) != Some(service));
     file.keys.insert(service.name().to_owned(), key.to_owned());
-    let text = toml::to_string(&file).expect("a table of strings serialises");
+    write(path, &file)
+}
+
+/// Delete `service`'s key, under any spelling, from the file at `path`,
+/// keeping its other keys. Without a file there is nothing to remove.
+pub fn remove(path: &Path, service: KeyedService) -> Result<(), String> {
+    let Some(mut file) = read(path)? else { return Ok(()) };
+    file.keys.retain(|name, _| KeyedService::from_name(name) != Some(service));
+    write(path, &file)
+}
+
+/// Write `file` to `path`, readable only by the user.
+fn write(path: &Path, file: &File) -> Result<(), String> {
+    let text = toml::to_string(file).expect("a table of strings serialises");
 
     let fail = |error: io::Error| format!("cannot write {}: {error}", path.display());
     if let Some(dir) = path.parent() {
@@ -221,6 +234,18 @@ mod tests {
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "[keys]\nelectricity_maps = \"new\"\n");
         assert_eq!(load(&path), Ok([(KeyedService::ElectricityMaps, ApiKey::new("new"))].into()));
+    }
+
+    #[test]
+    fn a_removed_key_is_gone_under_every_spelling() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        assert_eq!(remove(&path, KeyedService::ElectricityMaps), Ok(()), "no file: nothing to remove");
+        assert!(!path.exists());
+
+        fs::write(&path, "[keys]\nelectricitymaps = \"old\"\nelectricity_maps = \"new\"\n").unwrap();
+        remove(&path, KeyedService::ElectricityMaps).unwrap();
+        assert_eq!(load(&path), Ok(BTreeMap::new()));
     }
 
     #[test]

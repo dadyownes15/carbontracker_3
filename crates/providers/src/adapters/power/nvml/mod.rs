@@ -59,7 +59,7 @@ pub(crate) struct Gpu {
 /// with the loader's error.
 pub(crate) fn probe_nvml(energy_id: ProviderId, power_id: ProviderId, processes: Option<&[u32]>) -> NvmlOutcomes {
     let failed = |error: nvml_wrapper::error::NvmlError| {
-        let reason = format!("NVML: {error}");
+        let reason = nvml_reason(&error);
         NvmlOutcomes { energy: Err(reason.clone()), power: Err(reason) }
     };
     let nvml = match nvml_wrapper::Nvml::init() {
@@ -95,6 +95,20 @@ pub(crate) fn probe_nvml(energy_id: ProviderId, power_id: ProviderId, processes:
         });
     }
     split(Arc::new(nvml), &gpus, energy_id, power_id, processes)
+}
+
+/// Why NVML could not be used, in plain words; the loader's own error lists
+/// every path it tried.
+fn nvml_reason(error: &nvml_wrapper::error::NvmlError) -> String {
+    use nvml_wrapper::error::NvmlError;
+    match error {
+        NvmlError::LibloadingError(_) | NvmlError::LibraryNotFound => {
+            "no NVIDIA driver: the NVML library was not found".to_owned()
+        }
+        NvmlError::DriverNotLoaded => "the NVIDIA driver is not loaded".to_owned(),
+        NvmlError::NoPermission => "no permission to query the NVIDIA driver".to_owned(),
+        other => format!("NVML: {other}"),
+    }
 }
 
 /// The GPUs with an energy counter for `energy_id`, the rest with a power
@@ -220,6 +234,18 @@ mod tests {
     use carbontracker::Cooldown;
 
     use super::*;
+
+    /// AC/PROV-53
+    #[test]
+    fn a_driver_error_is_said_in_plain_words() {
+        use nvml_wrapper::error::NvmlError;
+        let missing = "no NVIDIA driver: the NVML library was not found";
+        assert_eq!(nvml_reason(&NvmlError::LibloadingError(libloading::Error::DlOpenUnknown)), missing);
+        assert_eq!(nvml_reason(&NvmlError::LibraryNotFound), missing);
+        assert_eq!(nvml_reason(&NvmlError::DriverNotLoaded), "the NVIDIA driver is not loaded");
+        assert_eq!(nvml_reason(&NvmlError::NoPermission), "no permission to query the NVIDIA driver");
+        assert_eq!(nvml_reason(&NvmlError::Unknown), format!("NVML: {}", NvmlError::Unknown));
+    }
 
     /// AC/PROV-37
     #[test]

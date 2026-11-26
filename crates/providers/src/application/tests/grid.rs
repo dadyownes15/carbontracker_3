@@ -1,6 +1,6 @@
-//! The location, intensity and forecast chains end to end, against fake
-//! servers standing in for ipinfo and Electricity Maps: offline, and the
-//! fakes' request logs show exactly what was sent.
+//! The location, intensity and forecast chains end to end, against one fake
+//! server standing in for ipinfo, Electricity Maps and the open sources:
+//! offline, and the fake's request log shows exactly what was sent.
 
 use std::time::{Duration, Instant};
 
@@ -15,7 +15,10 @@ use carbontracker::{
 use carbontracker::{Cooldown, Reading, SourceId};
 
 use crate::adapters::intensity::country_average::country_intensity;
-use crate::application::registry::{ELECTRICITY_MAPS, GLOBAL_AVERAGE};
+use crate::adapters::intensity::energinet::ENERGINET;
+use crate::adapters::intensity::energy_charts::ENERGY_CHARTS;
+use crate::adapters::intensity::neso::NESO;
+use crate::application::registry::{ELECTRICITY_MAPS, ENERGINET_ID, GLOBAL_AVERAGE};
 use crate::application::Endpoints;
 use crate::*;
 
@@ -40,13 +43,20 @@ fn config(location: Option<GridLocation>, key: bool) -> ProbeConfig {
     }
 }
 
-async fn probe(server: &MockServer, config: ProbeConfig) -> Resolution {
-    let endpoints = Endpoints {
+/// Every service at `server`: their paths do not overlap.
+fn endpoints(server: &MockServer) -> Endpoints {
+    Endpoints {
         ip_geolocation: format!("{}/json", server.uri()),
         electricity_maps: format!("{}/v3", server.uri()),
+        energinet: server.uri(),
+        neso: server.uri(),
+        energy_charts: server.uri(),
         timeout: TIMEOUT,
-    };
-    ProviderRegistry::new(config).unwrap().with_endpoints(endpoints).probe().await
+    }
+}
+
+async fn probe(server: &MockServer, config: ProbeConfig) -> Resolution {
+    ProviderRegistry::new(config).unwrap().with_endpoints(endpoints(server)).probe().await
 }
 
 fn verdict(resolution: &Resolution, name: &str) -> Verdict {
@@ -207,10 +217,10 @@ async fn a_stated_location_is_never_estimated() {
     assert!(serving(&resolution, "stated-location"));
     assert_eq!(verdict(&resolution, "ip-geolocation"), Verdict::NotWanted);
     assert!(serving(&resolution, "country-average"), "DK-DK2 is in Denmark");
-    assert!(server.received_requests().await.unwrap().is_empty(), "nothing went out");
+    assert_eq!(requests_to(&server, "/json").await, 0, "the IP service was not asked");
 }
 
-/// AC/PROV-4 AC/PROV-15 AC/PROV-16 AC/PROV-17 AC/PROV-18
+/// AC/PROV-4 AC/PROV-15 AC/PROV-16 AC/PROV-17 AC/PROV-18 AC/OPEN-35
 #[tokio::test]
 async fn a_stated_global_or_pinned_intensity_touches_no_network() {
     let mut pinned = config(None, true);
@@ -240,7 +250,7 @@ async fn a_stated_global_or_pinned_intensity_touches_no_network() {
 #[tokio::test]
 async fn an_ip_service_that_is_slow_failing_or_countryless_falls_to_the_global_average() {
     for (answer, why) in [
-        (ok(IPINFO).set_delay(Duration::from_secs(5)), "timed out"),
+        (ok(IPINFO).set_delay(Duration::from_secs(5)), "ipinfo.io did not answer in time"),
         (ResponseTemplate::new(500), "500"),
         (ok(r#"{"ip":"127.0.0.1","bogon":true}"#), "no country"),
     ] {
@@ -266,6 +276,23 @@ async fn an_ip_service_that_is_slow_failing_or_countryless_falls_to_the_global_a
             "{read:?}"
         );
     }
+}
+
+/// AC/OPEN-10 AC/OPEN-24
+#[tokio::test]
+async fn coordinates_no_source_covers_fall_to_the_global_average_without_a_request() {
+    let server = MockServer::start().await;
+    let open_sea = GridLocation::Coordinates { latitude: 0.0, longitude: -150.0 };
+
+    let resolution = probe(&server, config(Some(open_sea), false)).await;
+
+    for candidate in ["electricity-maps", "energinet", "neso", "energy-charts", "country-average"] {
+        declined(&resolution, candidate);
+    }
+    assert!(serving(&resolution, "global-average"));
+    assert!(server.received_requests().await.unwrap().is_empty(), "{resolution}");
+    let (intensity, _) = grid_sources(&resolution);
+    assert_eq!(intensity, SourceDescription::Intensity { location: GridLocation::Global, fidelity: Fidelity::Assumed });
 }
 
 /// AC/PROV-7 AC/PROV-8 AC/PROV-53
@@ -536,12 +563,7 @@ async fn the_registry_never_prints() {
         serve_by_coordinates(&server, FORECAST_PATH, ok(forecast_answer("DK-DK2"))).await;
         let mut config = config(None, true);
         config.pinned = Pinned::default();
-        let endpoints = Endpoints {
-            ip_geolocation: format!("{}/json", server.uri()),
-            electricity_maps: format!("{}/v3", server.uri()),
-            timeout: TIMEOUT,
-        };
-        let registry = ProviderRegistry::new(config).unwrap().with_endpoints(endpoints);
+        let registry = ProviderRegistry::new(config).unwrap().with_endpoints(endpoints(&server));
 
         let mark = |text: &str| {
             for mut stream in [Box::new(std::io::stdout()) as Box<dyn Write>, Box::new(std::io::stderr())] {
@@ -571,4 +593,164 @@ async fn the_registry_never_prints() {
         let between = written.split_once(BEGIN).and_then(|(_, rest)| rest.split_once(END)).map(|(between, _)| between);
         assert_eq!(between, Some("\n"), "{stream} while probing: {written}");
     }
+}
+
+// The open sources in the chains, between Electricity Maps and the country table.
+
+/// Energinet answering for `area`, `DK1` or `DK2`: its latest figure, 90, and
+/// its forecast, unless `forecast` is another answer.
+async fn serve_energinet(server: &MockServer, area: &str, forecast: Option<ResponseTemplate>) {
+    super::energinet::serve(server, super::energinet::CO2EMIS_PATH, area, ok(super::energinet::latest_answer(area).to_string()))
+        .await;
+    let forecast = forecast.unwrap_or_else(|| ok(super::energinet::forecast_answer(area).to_string()));
+    super::energinet::serve(server, super::energinet::CO2EMISPROG_PATH, area, forecast).await;
+}
+
+/// Energy-Charts answering for `country`, in its own lowercase code.
+async fn serve_energy_charts(server: &MockServer, country: &str) {
+    let answer = super::energy_charts::answer_with_current(super::energy_charts::LAST_MEASURED);
+    super::energy_charts::serve(server, country, ok(answer)).await;
+}
+
+/// AC/OPEN-1 AC/OPEN-18 AC/OPEN-24 AC/OPEN-25 AC/OPEN-26 AC/OPEN-27 AC/OPEN-28 AC/OPEN-29 AC/OPEN-34
+#[tokio::test]
+async fn with_no_key_energinet_bills_and_forecasts_the_estimated_danish_grid() {
+    let server = MockServer::start().await;
+    serve_ipinfo(&server).await;
+    serve_energinet(&server, "DK2", None).await;
+    serve_energy_charts(&server, "dk").await;
+
+    let mut resolution = probe(&server, config(None, false)).await;
+
+    assert_eq!(declined(&resolution, "electricity-maps"), "no Electricity Maps key");
+    assert!(serving(&resolution, ENERGINET));
+    for later in [NESO, ENERGY_CHARTS, "country-average", "global-average"] {
+        assert_eq!(verdict(&resolution, later), Verdict::Covered, "{later}");
+    }
+    assert_eq!(requests_to(&server, super::energy_charts::CO2EQ_PATH).await, 0, "the operator comes before the aggregator");
+
+    let (intensity, forecast) = grid_sources(&resolution);
+    assert_eq!(intensity, SourceDescription::Intensity { location: zone("DK-DK2"), fidelity: Fidelity::Measured });
+    assert_eq!(
+        (forecast.location(), forecast.fidelity(), forecast.served_by()),
+        (&zone("DK-DK2"), Fidelity::Measured, "energinet-forecast")
+    );
+    assert!(serving(&resolution, "energinet-forecast"));
+    assert_eq!(verdict(&resolution, "projection"), Verdict::Covered);
+
+    // The publisher's figure, unconverted.
+    let mut energinet = resolution.providers.remove(&ENERGINET_ID).expect("energinet serves");
+    let read = energinet.read().unwrap();
+    assert!(
+        matches!(read.get(SourceId::new(ENERGINET_ID, 0)), Some(Reading::Samples(samples)) if samples[0].value() == 90.0),
+        "{read:?}"
+    );
+}
+
+/// AC/OPEN-25
+#[tokio::test]
+async fn a_key_keeps_electricity_maps_first_and_no_open_source_is_asked() {
+    let server = MockServer::start().await;
+    serve_ipinfo(&server).await;
+    serve_by_coordinates(&server, LATEST_PATH, ok(LATEST)).await;
+    serve_by_coordinates(&server, FORECAST_PATH, ok(forecast_answer("DK-DK2"))).await;
+    serve_energinet(&server, "DK2", None).await;
+
+    let resolution = probe(&server, config(None, true)).await;
+
+    assert!(serving(&resolution, "electricity-maps"));
+    assert!(serving(&resolution, "electricity-maps-forecast"));
+    for open in [ENERGINET, NESO, ENERGY_CHARTS] {
+        assert_eq!(verdict(&resolution, open), Verdict::Covered, "{open}");
+    }
+    let asked = server.received_requests().await.unwrap();
+    assert!(asked.iter().all(|request| request.url.path() == "/json" || request.url.path().starts_with("/v3/")), "{asked:?}");
+}
+
+/// AC/OPEN-32
+#[tokio::test]
+async fn a_grid_an_open_source_serves_is_never_asked_of_electricity_maps_again() {
+    let server = MockServer::start().await;
+    serve_ipinfo(&server).await;
+    serve_by_coordinates(&server, LATEST_PATH, ResponseTemplate::new(401)).await;
+    serve_by_coordinates(&server, FORECAST_PATH, ok(forecast_answer("DK-DK2"))).await;
+    serve_energinet(&server, "DK2", None).await;
+
+    let resolution = probe(&server, config(None, true)).await;
+
+    assert!(serving(&resolution, ENERGINET));
+    assert_eq!(verdict(&resolution, "electricity-maps-forecast"), Verdict::NotWanted);
+    assert_eq!(requests_to(&server, FORECAST_PATH).await, 0);
+    assert_eq!(grid_sources(&resolution).1.served_by(), "energinet-forecast");
+}
+
+/// AC/OPEN-24 AC/OPEN-27 AC/OPEN-29
+#[tokio::test]
+async fn great_britain_is_billed_and_forecast_from_neso() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/intensity")).respond_with(ok(super::neso::INTENSITY)).mount(&server).await;
+    Mock::given(method("GET"))
+        .and(wiremock::matchers::path_regex(r"^/intensity/[^/]+/fw48h$"))
+        .respond_with(ok(super::neso::from_this_half_hour(super::neso::INTENSITY_FW48H)))
+        .mount(&server)
+        .await;
+
+    let resolution = probe(&server, config(Some(zone("GB")), false)).await;
+
+    assert!(serving(&resolution, NESO), "{resolution}");
+    assert_eq!(verdict(&resolution, ENERGY_CHARTS), Verdict::Covered);
+    let (intensity, forecast) = grid_sources(&resolution);
+    assert_eq!(location_of(&intensity), &zone("GB"));
+    assert_eq!((forecast.location(), forecast.served_by()), (&zone("GB"), "neso-forecast"));
+}
+
+/// AC/OPEN-24 AC/OPEN-27 AC/OPEN-29
+#[tokio::test]
+async fn a_country_only_energy_charts_publishes_is_billed_and_forecast_from_it() {
+    let server = MockServer::start().await;
+    serve_energy_charts(&server, "de").await;
+
+    let resolution = probe(&server, config(Some(zone("DE")), false)).await;
+
+    assert!(serving(&resolution, ENERGY_CHARTS), "{resolution}");
+    assert_eq!(verdict(&resolution, "country-average"), Verdict::Covered);
+    let (intensity, forecast) = grid_sources(&resolution);
+    assert_eq!(intensity, SourceDescription::Intensity { location: country("DE"), fidelity: Fidelity::Measured });
+    assert_eq!(
+        (forecast.location(), forecast.fidelity(), forecast.served_by()),
+        (&country("DE"), Fidelity::Measured, "energy-charts-forecast")
+    );
+}
+
+/// AC/OPEN-24 AC/OPEN-11
+#[tokio::test]
+async fn an_open_source_that_fails_falls_to_the_next() {
+    let server = MockServer::start().await;
+    super::energinet::serve(&server, super::energinet::CO2EMIS_PATH, "DK1", ResponseTemplate::new(500)).await;
+    serve_energy_charts(&server, "dk").await;
+
+    let resolution = probe(&server, config(Some(zone("DK-DK1")), false)).await;
+
+    assert!(declined(&resolution, ENERGINET).contains("500"));
+    assert!(serving(&resolution, ENERGY_CHARTS), "{resolution}");
+    let (intensity, forecast) = grid_sources(&resolution);
+    assert_eq!(location_of(&intensity), &country("DK"), "Energy-Charts publishes Denmark as one country");
+    assert_eq!(forecast.served_by(), "energy-charts-forecast");
+}
+
+/// AC/OPEN-27 AC/OPEN-33
+#[tokio::test]
+async fn a_failed_open_forecast_holds_the_billed_figure_and_asks_no_other_publisher() {
+    let server = MockServer::start().await;
+    serve_energinet(&server, "DK2", Some(ResponseTemplate::new(500))).await;
+    serve_energy_charts(&server, "dk").await;
+
+    let resolution = probe(&server, config(Some(zone("DK-DK2")), false)).await;
+
+    assert!(serving(&resolution, ENERGINET));
+    assert!(declined(&resolution, "energinet-forecast").contains("500"));
+    assert!(serving(&resolution, "projection"));
+    let (_, forecast) = grid_sources(&resolution);
+    assert_eq!((forecast.location(), forecast.fidelity()), (&zone("DK-DK2"), Fidelity::Modelled));
+    assert_eq!(requests_to(&server, super::energy_charts::CO2EQ_PATH).await, 0);
 }

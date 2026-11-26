@@ -54,6 +54,7 @@ fn console(out: &Shared, verbosity: Verbosity) -> Console {
     Console {
         out: Box::new(out.clone()),
         verbosity,
+        colour: false,
         layout: Layout::Summary {
             title: "work".to_owned(),
         },
@@ -64,6 +65,7 @@ fn legacy(out: &Shared) -> Console {
     Console {
         out: Box::new(out.clone()),
         verbosity: Verbosity::Normal,
+        colour: false,
         layout: Layout::Legacy {
             decimals: 6,
             equivalents: true,
@@ -128,6 +130,36 @@ fn the_folder_holds_the_record_and_the_consoles_text() {
         output.contains(&format!("Logs:       {}", folder.path().display())),
         "{output}"
     );
+}
+
+/// `text` without its ANSI colour codes.
+fn plain(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            chars.by_ref().find(|c| *c == 'm');
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// AC/OUT-14, AC/OUT-38
+#[test]
+fn colour_reaches_the_terminal_and_never_output_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = Folder::claim(dir.path(), None).unwrap();
+    let out = Shared::default();
+    let mut coloured = console(&out, Verbosity::Normal);
+    coloured.colour = true;
+    one_span(config(standard_sinks(coloured, Some(&folder)).unwrap()));
+
+    let output = std::fs::read_to_string(folder.output_log()).unwrap();
+    assert!(out.text().contains("\x1b["), "the terminal is coloured: {:?}", out.text());
+    assert!(!output.contains('\x1b'), "output.log is plain: {output:?}");
+    assert_eq!(plain(&out.text()), output, "the same text, colour aside");
 }
 
 /// AC/RUN-15, AC/FE-48
@@ -1051,10 +1083,10 @@ fn console_for(grid: GridConfig) -> String {
 /// AC/RUN-23
 #[test]
 fn a_world_average_nobody_asked_for_says_why() {
-    let coordinates = GridLocation::Coordinates { latitude: 55.68, longitude: 12.57 };
+    let coordinates = GridLocation::Coordinates { latitude: 0.0, longitude: -150.0 };
     let text = console_for(GridConfig { location: Some(coordinates), ..GridConfig::default() });
     let warning = text.lines().find(|line| line.contains("WARNING - the world-average grid")).unwrap_or_else(|| panic!("{text}"));
-    assert!(warning.contains("(55.68, 12.57)") && warning.contains("no key"), "{warning}");
+    assert!(warning.contains("(0.00, -150.00)") && warning.contains("no key"), "{warning}");
     assert!(warning.contains("country table"), "{warning}");
     assert!(text.find("ready.").unwrap() < text.find(warning).unwrap(), "{text}");
 

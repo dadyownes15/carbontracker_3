@@ -9,12 +9,14 @@ use carbontracker_run::{check_project, project_folder, read_report};
 /// save either as CSV to `output`, by default `runs.csv` or `spans.csv` in the
 /// folder the runs were read from. The saved path and what the CSV leaves out go to stderr.
 /// With `project`, only its runs; with no paths, those linked from its folder.
+/// With neither, the runs in `log_folder`.
 pub fn report(
     spans: bool,
     csv: bool,
     output: Option<PathBuf>,
     project: Option<&str>,
     mut paths: Vec<PathBuf>,
+    log_folder: &Path,
 ) -> Result<i32, String> {
     if let Some(project) = project {
         check_project(project)?;
@@ -25,6 +27,15 @@ pub fn report(
             }
             paths.push(folder);
         }
+    }
+    if paths.is_empty() && project.is_none() {
+        if !log_folder.is_dir() {
+            return Err(format!(
+                "no runs to read: {} is not there. Give a path: carbontracker report PATH",
+                log_folder.display()
+            ));
+        }
+        paths.push(log_folder.to_path_buf());
     }
     let paths = &paths[..];
     let read = read_report(paths, project).map_err(|error| error.to_string())?;

@@ -208,7 +208,7 @@ CarbonTracker: ready. Starting python train.py
 CarbonTracker: python train.py summary:
 	Time:       0:00:03
 	Energy:     0.0000240 kWh
-	Intensity:  143 gCO2eq/kWh avg, DK (modelled)
+	Intensity:  143 gCO2eq/kWh (average)
 	CO2eq:      0.00345 g
 	This is equivalent to:
 	0.0000323 km travelled by car
@@ -219,7 +219,7 @@ CarbonTracker: WARNING - part of this total is an estimate, not measured on this
 | Command | Does |
 |---|---|
 | `carbontracker <command>` | Track a whole command |
-| `carbontracker check` | Show what would be measured on this machine |
+| `carbontracker check` | Show the sources available on this machine |
 | `carbontracker init` | Save an Electricity Maps key for live grid data |
 | `carbontracker report logs` | Sum the recorded runs; `--spans` groups them by span, `--csv` saves a spreadsheet |
 

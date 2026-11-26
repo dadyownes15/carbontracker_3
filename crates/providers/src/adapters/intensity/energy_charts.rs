@@ -19,6 +19,8 @@ const ENERGY_CHARTS_COOLDOWN: Duration = Duration::from_secs(5 * 60);
 /// How long a request made from a read may wait on the service.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const ENERGY_CHARTS_URL: &str = "https://api.energy-charts.info";
+/// The candidate's name. Energy-Charts publishes CO2 equivalents.
+pub(crate) const ENERGY_CHARTS: &str = "energy-charts";
 
 /// The countries Energy-Charts publishes `co2eq` for, and its code for each.
 const COUNTRIES: [(&str, &str); 37] = [
@@ -93,7 +95,7 @@ fn params(asked_as: &str) -> [(&'static str, &str); 1] {
 }
 
 fn unreachable(error: reqwest::Error) -> ProviderError {
-    ProviderError::Unavailable(format!("Energy-Charts: {error}"))
+    ProviderError::Unavailable(crate::adapters::http::failure("Energy-Charts", &error))
 }
 
 /// The error for a status that refuses the request, if it does.

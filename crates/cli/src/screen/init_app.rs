@@ -1,4 +1,4 @@
-//! The full-screen `init`: a menu, the key typed masked and checked before
+//! The full-screen `init`: a menu, the key typed and checked before
 //! it is saved, a Slurm script picked and its wrapper shown before it is
 //! written, and the check view.
 
@@ -48,6 +48,8 @@ pub struct App<'a> {
     screen: Screen,
     input: String,
     menu: ListState,
+    /// On the key page, the remove line below the field is selected.
+    on_remove: bool,
     scripts: Vec<PathBuf>,
     pick: ListState,
     tx: Sender<KeyCheck>,
@@ -57,7 +59,16 @@ pub struct App<'a> {
     pub quit: bool,
 }
 
-const ITEMS: usize = 4;
+/// An entry in the menu.
+#[derive(Clone, Copy)]
+enum Item {
+    Key,
+    Slurm,
+    Check,
+    Quit,
+}
+
+const ITEMS: [Item; 4] = [Item::Check, Item::Key, Item::Slurm, Item::Quit];
 
 impl<'a> App<'a> {
     pub fn new(deps: Deps<'a>) -> Self {
@@ -67,6 +78,7 @@ impl<'a> App<'a> {
             screen: Screen::Menu,
             input: String::new(),
             menu: ListState::default().with_selected(Some(0)),
+            on_remove: false,
             scripts: Vec::new(),
             pick: ListState::default().with_selected(Some(0)),
             tx,
@@ -162,7 +174,7 @@ impl<'a> App<'a> {
                     Screen::Menu
                 }
                 KeyCode::Down => {
-                    let next = self.menu.selected().map_or(0, |item| (item + 1).min(ITEMS - 1));
+                    let next = self.menu.selected().map_or(0, |item| (item + 1).min(ITEMS.len() - 1));
                     self.menu.select(Some(next));
                     Screen::Menu
                 }
@@ -176,11 +188,21 @@ impl<'a> App<'a> {
             },
             Screen::Key { error } => match code {
                 KeyCode::Esc => Screen::Menu,
+                KeyCode::Down if self.saved_hint().is_some() => {
+                    self.on_remove = true;
+                    Screen::Key { error }
+                }
+                KeyCode::Up => {
+                    self.on_remove = false;
+                    Screen::Key { error }
+                }
+                KeyCode::Enter if self.on_remove => self.remove_key(),
                 KeyCode::Enter if self.input.trim().is_empty() => {
                     Screen::Key { error: Some("Type a key, or Esc to go back.".into()) }
                 }
                 KeyCode::Enter => self.start_key_check(),
                 code => {
+                    self.on_remove = false;
                     edit(&mut self.input, code);
                     Screen::Key { error }
                 }
@@ -258,14 +280,28 @@ impl<'a> App<'a> {
         }
     }
 
-    fn choose(&mut self, item: usize) -> Screen {
-        self.menu.select(Some(item));
-        match item {
-            0 => {
-                self.input.clear();
-                Screen::Key { error: None }
+    fn key_prompt(&mut self) -> Screen {
+        self.input.clear();
+        self.on_remove = false;
+        Screen::Key { error: None }
+    }
+
+    fn remove_key(&mut self) -> Screen {
+        let hint = self.saved_hint().unwrap_or_default();
+        match config::remove(&self.deps.config, KeyedService::ElectricityMaps) {
+            Ok(()) => {
+                self.log.push(format!("Removed the Electricity Maps key {hint} from {}", self.deps.config.display()));
+                Screen::Menu
             }
-            1 => {
+            Err(error) => Screen::Failed(error),
+        }
+    }
+
+    fn choose(&mut self, index: usize) -> Screen {
+        self.menu.select(Some(index));
+        match ITEMS[index] {
+            Item::Key => self.key_prompt(),
+            Item::Slurm => {
                 self.scripts = slurm::find(&self.deps.here);
                 self.pick.select(Some(0));
                 if self.scripts.is_empty() {
@@ -276,8 +312,8 @@ impl<'a> App<'a> {
                     Screen::Pick
                 }
             }
-            2 => self.open_check(),
-            _ => {
+            Item::Check => self.open_check(),
+            Item::Quit => {
                 self.quit = true;
                 Screen::Menu
             }
@@ -300,13 +336,9 @@ impl<'a> App<'a> {
             Span::styled("carbontracker ", Style::new().fg(Color::Green).add_modifier(Modifier::BOLD)),
             Span::styled("init", Style::new().add_modifier(Modifier::BOLD)),
         ]);
-        let status = match self.saved_hint() {
-            Some(hint) => format!("Electricity Maps key {hint} saved"),
-            None => "No Electricity Maps key saved".to_owned(),
-        };
         let [head, body, foot] =
             Layout::vertical([Constraint::Length(2), Constraint::Min(5), Constraint::Length(1)]).areas(area);
-        frame.render_widget(Paragraph::new(vec![title, Line::from(Span::styled(status, dim()))]), head);
+        frame.render_widget(Paragraph::new(title), head);
 
         let (heading, keys) = self.labels();
         let block = Block::default().borders(Borders::ALL).title(heading).padding(Padding::horizontal(1));
@@ -317,12 +349,16 @@ impl<'a> App<'a> {
         let hint = self.saved_hint();
         match &mut self.screen {
             Screen::Menu => {
-                let key_item = match hint {
-                    Some(hint) => format!("Change Electricity Maps API key (now {hint})"),
-                    None => "Add Electricity Maps API key".to_owned(),
-                };
-                let items = [key_item, "Attach carbontracker to a Slurm script".into(), "Check what would be measured".into(), "Quit".into()];
-                let items = items.iter().enumerate().map(|(i, item)| ListItem::new(format!("{}) {item}", i + 1)));
+                let items = ITEMS.iter().enumerate().map(|(i, item)| {
+                    let text = match (item, &hint) {
+                        (Item::Key, Some(hint)) => format!("Change Electricity Maps API key (now {hint})"),
+                        (Item::Key, None) => "Add Electricity Maps API key".to_owned(),
+                        (Item::Slurm, _) => "Attach carbontracker to a Slurm script".to_owned(),
+                        (Item::Check, _) => "Check available sources".to_owned(),
+                        (Item::Quit, _) => "Quit".to_owned(),
+                    };
+                    ListItem::new(format!("{}) {text}", i + 1))
+                });
                 let list = List::new(items)
                     .highlight_symbol("❯ ")
                     .highlight_style(Style::new().fg(Color::Green).add_modifier(Modifier::BOLD));
@@ -334,15 +370,24 @@ impl<'a> App<'a> {
                     Line::from(""),
                     Line::from(vec![
                         Span::styled("› ", Style::new().fg(Color::Green)),
-                        Span::raw("•".repeat(self.input.chars().count())),
+                        Span::raw(self.input.clone()),
                     ]),
                 ];
                 if let Some(error) = error {
                     lines.push(Line::from(""));
                     lines.push(Line::from(Span::styled(error.clone(), Style::new().fg(Color::Red))));
                 }
-                lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled("Find it at app.electricitymaps.com, under API keys.", dim())));
+                if let Some(hint) = &hint {
+                    let text = format!("Remove saved key ({hint})");
+                    lines.push(Line::from(""));
+                    lines.push(match self.on_remove {
+                        true => Line::from(Span::styled(
+                            format!("❯ {text}"),
+                            Style::new().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        )),
+                        false => Line::from(Span::styled(format!("  {text}"), dim())),
+                    });
+                }
                 frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
             }
             Screen::Checking => {
@@ -406,9 +451,13 @@ impl<'a> App<'a> {
         }
     }
 
-    fn labels(&self) -> (String, &'static str) {
-        match &self.screen {
+    fn labels(&self) -> (String, String) {
+        let (heading, keys): (String, &str) = match &self.screen {
             Screen::Menu => (" What would you like to do? ".into(), "1–4 or ↑↓ Enter choose · q quit"),
+            Screen::Key { .. } if self.on_remove => (" Electricity Maps API key ".into(), "Enter remove · ↑ back to the key · Esc back"),
+            Screen::Key { .. } if self.saved_hint().is_some() => {
+                (" Electricity Maps API key ".into(), "Enter check and save · ↓ remove saved key · Esc back")
+            }
             Screen::Key { .. } => (" Electricity Maps API key ".into(), "Enter check and save · Esc back"),
             Screen::Checking => (" Electricity Maps API key ".into(), "Ctrl-C quit"),
             Screen::Unreachable { .. } => {
@@ -420,7 +469,8 @@ impl<'a> App<'a> {
             Screen::Done(_) => (" Done ".into(), "any key: back to the menu"),
             Screen::Check(_) => (" carbontracker check ".into(), "q or Esc back to the menu"),
             Screen::Failed(_) => (" Error ".into(), "any key: back to the menu"),
-        }
+        };
+        (heading, keys.to_owned())
     }
 }
 
@@ -526,22 +576,21 @@ mod tests {
     fn the_menu_offers_each_action_and_a_saved_key_opens_check_then_comes_back() {
         let mut f = fixture(vec![KeyCheck::Works(vec!["DK-DK1".into()])]);
         let menu = screen(&mut f.app);
-        for item in ["1) Add Electricity Maps API key", "2) Attach carbontracker to a Slurm script", "3) Check what would be measured", "4) Quit"] {
+        for item in ["1) Check available sources", "2) Add Electricity Maps API key", "3) Attach carbontracker to a Slurm script", "4) Quit"] {
             assert!(menu.contains(item), "{item}: {menu}");
         }
-        press(&mut f.app, "1");
+        press(&mut f.app, "2");
         press(&mut f.app, "secret-c3d4");
         let typing = screen(&mut f.app);
-        assert!(typing.contains("•••••••••••"), "masked: {typing}");
-        assert!(!typing.contains("secret"), "{typing}");
+        assert!(typing.contains("› secret-c3d4"), "shown as typed: {typing}");
         key(&mut f.app, KeyCode::Enter);
         assert!(checking(&f.app));
         f.app.wait();
         assert_eq!(saved(&f).as_deref(), Some("secret-c3d4"));
         assert!(on_check(&f.app), "check opens after saving");
         key(&mut f.app, KeyCode::Char('q'));
-        assert!(screen(&mut f.app).contains("1) Change Electricity Maps API key (now …c3d4)"));
-        press(&mut f.app, "3");
+        assert!(screen(&mut f.app).contains("2) Change Electricity Maps API key (now …c3d4)"));
+        press(&mut f.app, "1");
         assert!(on_check(&f.app));
         key(&mut f.app, KeyCode::Esc);
         press(&mut f.app, "4");
@@ -552,12 +601,52 @@ mod tests {
         assert!(!log.contains("secret"));
     }
 
+    /// AC/FE-65, AC/FE-87
+    #[test]
+    fn below_the_key_field_a_saved_key_can_be_removed() {
+        let mut f = fixture(vec![]);
+        config::save(&f.app.deps.config, KeyedService::ElectricityMaps, "key-c3d4").unwrap();
+        press(&mut f.app, "2");
+        let page = screen(&mut f.app);
+        assert!(page.contains("Remove saved key (…c3d4)"), "{page}");
+        assert!(page.find("› ").unwrap() < page.find("Remove saved key").unwrap(), "the field is above: {page}");
+        key(&mut f.app, KeyCode::Down);
+        key(&mut f.app, KeyCode::Up);
+        press(&mut f.app, "x");
+        assert!(screen(&mut f.app).contains("› x"), "↑ goes back to the field");
+        key(&mut f.app, KeyCode::Down);
+        assert!(screen(&mut f.app).contains("❯ Remove saved key"), "↓ selects it");
+        key(&mut f.app, KeyCode::Enter);
+        assert_eq!(saved(&f), None);
+        assert!(screen(&mut f.app).contains("2) Add Electricity Maps API key"), "back at the menu");
+
+        press(&mut f.app, "2");
+        assert!(!screen(&mut f.app).contains("Remove"), "nothing to remove");
+        key(&mut f.app, KeyCode::Down);
+        key(&mut f.app, KeyCode::Enter);
+        assert!(screen(&mut f.app).contains("Type a key, or Esc to go back"), "↓ without a key stays in the field");
+        let log = f.app.log.join("\n");
+        assert!(log.contains("Removed the Electricity Maps key …c3d4 from"), "{log}");
+    }
+
+    #[test]
+    fn the_screens_carry_no_saved_key_status_or_where_to_find_a_key() {
+        let mut f = fixture(vec![]);
+        config::save(&f.app.deps.config, KeyedService::ElectricityMaps, "key-c3d4").unwrap();
+        let menu = screen(&mut f.app);
+        assert!(!menu.contains("saved"), "{menu}");
+        press(&mut f.app, "2");
+        let typing = screen(&mut f.app);
+        assert!(!typing.contains("app.electricitymaps.com"), "{typing}");
+        assert!(!typing.contains("saved\n") && !typing.contains("key …c3d4 saved"), "{typing}");
+    }
+
     /// AC/FE-67
     #[test]
     fn a_refused_key_is_asked_for_again_and_never_saved() {
         let refused = KeyCheck::Refused("Electricity Maps refused the key (401 Unauthorized)".into());
         let mut f = fixture(vec![refused, KeyCheck::Works(vec![])]);
-        press(&mut f.app, "1");
+        press(&mut f.app, "2");
         press(&mut f.app, "bad");
         key(&mut f.app, KeyCode::Enter);
         f.app.wait();
@@ -575,7 +664,7 @@ mod tests {
     fn an_unreachable_api_offers_to_try_again_or_save_unchecked() {
         let down = || KeyCheck::Unreachable("unavailable: Electricity Maps: timed out".into());
         let mut f = fixture(vec![down(), down()]);
-        press(&mut f.app, "1");
+        press(&mut f.app, "2");
         press(&mut f.app, "key-2222");
         key(&mut f.app, KeyCode::Enter);
         f.app.wait();
@@ -595,7 +684,7 @@ mod tests {
         let mut f = fixture(vec![]);
         std::fs::create_dir(f.root.join("jobs")).unwrap();
         std::fs::write(f.root.join("jobs/train.sh"), SCRIPT).unwrap();
-        press(&mut f.app, "2");
+        press(&mut f.app, "3");
         let pick = screen(&mut f.app);
         assert!(pick.contains("jobs/train.sh"), "{pick}");
         assert!(pick.contains("Type a path…"), "{pick}");
@@ -615,7 +704,7 @@ mod tests {
     #[test]
     fn a_typed_path_is_wrapped_and_a_bad_one_is_named() {
         let mut f = fixture(vec![]);
-        press(&mut f.app, "2");
+        press(&mut f.app, "3");
         let empty = screen(&mut f.app);
         assert!(empty.contains("No Slurm scripts found"), "{empty}");
         press(&mut f.app, "nope.sh");

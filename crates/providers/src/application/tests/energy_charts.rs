@@ -16,11 +16,11 @@ use crate::adapters::intensity::energy_charts::{probe_energy_charts, probe_energ
 use crate::domain::location::Location;
 
 const CO2EQ: &str = include_str!("fixtures/energy-charts-co2eq.json");
-const CO2EQ_PATH: &str = "/co2eq";
+pub(super) const CO2EQ_PATH: &str = "/co2eq";
 const ID: ProviderId = ProviderId(91);
 /// The fixture's last interval with a `co2eq`, and its figure.
-const LAST_MEASURED: usize = 17;
-const LAST_FIGURE: f64 = 424.7;
+pub(super) const LAST_MEASURED: usize = 17;
+pub(super) const LAST_FIGURE: f64 = 424.7;
 /// The fixture's first interval with a `co2eq_forecast`, and its figure.
 const FIRST_FORECAST: usize = 18;
 const FIRST_FORECAST_FIGURE: f64 = 438.5;
@@ -30,7 +30,7 @@ fn client() -> reqwest::Client {
 }
 
 /// The fixture with its intervals moved so `current` is the one under way.
-fn answer_with_current(current: usize) -> String {
+pub(super) fn answer_with_current(current: usize) -> String {
     let mut answer: serde_json::Value = serde_json::from_str(CO2EQ).unwrap();
     let start = Utc::now().duration_trunc(TimeDelta::minutes(15)).unwrap() - TimeDelta::minutes(15 * current as i64);
     for (index, stamp) in answer["unix_seconds"].as_array_mut().unwrap().iter_mut().enumerate() {
@@ -50,7 +50,7 @@ fn ok(body: impl Into<String>) -> ResponseTemplate {
 }
 
 /// Energy-Charts answering only for `country`, in its own lowercase code.
-async fn serve(server: &MockServer, country: &str, answer: ResponseTemplate) {
+pub(super) async fn serve(server: &MockServer, country: &str, answer: ResponseTemplate) {
     Mock::given(method("GET"))
         .and(path(CO2EQ_PATH))
         .and(query_param("country", country))

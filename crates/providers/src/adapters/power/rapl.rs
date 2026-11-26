@@ -31,7 +31,10 @@ struct RaplZone {
 
 /// The readable zones under `root`, or why there are none.
 fn discover_rapl_zones(root: &std::path::Path) -> Probed<Vec<RaplZone>> {
-    let dir = std::fs::read_dir(root).map_err(|error| format!("{}: {error}", root.display()))?;
+    let dir = std::fs::read_dir(root).map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => format!("no RAPL counters: {} is missing", root.display()),
+        _ => format!("{}: {error}", root.display()),
+    })?;
 
     let mut entries: Vec<std::path::PathBuf> = dir
         .flatten()
@@ -63,7 +66,13 @@ fn discover_rapl_zones(root: &std::path::Path) -> Probed<Vec<RaplZone>> {
 
         let energy_path = zone_dir.join("energy_uj");
         if let Err(error) = std::fs::read_to_string(&energy_path) {
-            unreadable.get_or_insert_with(|| format!("{}: {error}", energy_path.display()));
+            unreadable.get_or_insert_with(|| match error.kind() {
+                std::io::ErrorKind::PermissionDenied => format!(
+                    "{} is readable by root only; run as root, or make the counters readable",
+                    energy_path.display()
+                ),
+                _ => format!("{}: {error}", energy_path.display()),
+            });
             continue;
         }
 
@@ -318,7 +327,7 @@ mod tests {
             return; // Root reads every file.
         }
         let reason = probe_rapl_at(ProviderId(1), root.path()).err().expect("declines");
-        assert!(reason.contains("energy_uj") && reason.contains("denied"), "{reason:?}");
+        assert!(reason.contains("energy_uj") && reason.contains("readable by root only"), "{reason:?}");
         assert!(matches!(provider.read().unwrap().get(source()), Some(Reading::Failed(ProviderError::Denied(_)))));
     }
 
@@ -327,7 +336,7 @@ mod tests {
     fn a_decline_says_what_was_missing() {
         let missing = tempfile::tempdir().unwrap().path().join("powercap");
         let reason = probe_rapl_at(ProviderId(1), &missing).err().expect("declines");
-        assert!(reason.contains("powercap"), "{reason:?}");
+        assert!(reason.starts_with("no RAPL counters: ") && reason.contains("powercap") && reason.ends_with("is missing"), "{reason:?}");
 
         let only_psys = powercap(&[("intel-rapl:0", "psys")]);
         let reason = probe_rapl_at(ProviderId(1), only_psys.path()).err().expect("declines");

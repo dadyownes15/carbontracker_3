@@ -8,7 +8,7 @@ mod run;
 pub(crate) mod slurm;
 
 pub use check::check;
-pub(crate) use check::{How, candidate_of, key_warning};
+pub(crate) use check::{How, candidate_of, hours, key_warning};
 pub use init::init;
 pub use report::report;
 pub use run::track;

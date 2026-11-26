@@ -39,7 +39,13 @@ verbosity is printed at a higher one, with the same text. <!-- AC/OUT-12 -->
 **A warning prints when its cause is known, not at the end.** A warning raised
 during the session prints during the session. <!-- AC/OUT-13 -->
 
-**`output.log` holds what Normal prints, whatever the verbosity.** <!-- AC/OUT-14 -->
+**`output.log` holds what Normal prints, whatever the verbosity**, without
+colour. <!-- AC/OUT-14 -->
+
+**On a terminal the CLI's console is coloured**, unless `NO_COLOR` is set:
+the prefix, labels and providers dimmed; `live` and `stated` green and
+`fallback` red; warnings yellow and errors red; the summary's figures bold. A pipe, a file and Python's console
+get the same text without colour. <!-- AC/OUT-38 -->
 
 > A run with a stated draw of 10 W and a stated intensity of 100 g/kWh on the
 > world-average grid, as asked, and a log folder. It tracks one span and
@@ -48,6 +54,23 @@ during the session prints during the session. <!-- AC/OUT-13 -->
 > closing block. Everything prints the same lines in the same order, with
 > timed debug lines between them. `output.log` equals what Normal printed.
 > (OUT-8, OUT-9, OUT-10, OUT-12, OUT-14)
+
+## Setup lines
+
+**Each setup line names a value, how it is obtained (`live`, `stated` or
+`fallback`) and what it is, in the words `check` uses; a fallback names what
+it falls back to, and each names its provider in brackets after it. Power
+names each provider once, on its own line, with how that provider's value is
+obtained.** The
+forecast line prints only when a prediction will read the forecast.
+<!-- AC/OUT-37 -->
+
+```text
+power      live       system (macmon)
+           live       cpu, gpu, ane, ram (ioreport)
+intensity  fallback   national average for DK, 143 gCO2eq/kWh (country-average)
+forecast   fallback   projects the current intensity (projection)
+```
 
 ## Failed reads
 
@@ -114,7 +137,8 @@ so Quiet prints them without the closing or prediction block. <!-- AC/OUT-28 -->
 > nothing. (OUT-21, OUT-28, OUT-35)
 
 **A span report's warning prints once per run.** A later span whose warning
-has the same text, span name included, prints nothing more. <!-- AC/OUT-36 -->
+has the same text, span name included, prints nothing more, and nor does the
+session report's copy of a warning a span already printed. <!-- AC/OUT-36 -->
 
 > The console at Quiet is given a span report for `epoch` with no samples
 > inside it. It prints one warning, naming `epoch` and the thin coverage, and
