@@ -572,7 +572,7 @@ pub(crate) mod tests {
         assert_eq!(line("forecast"), KindLine {
             label: "forecast",
             value: "24 h ahead".into(),
-            how: Some(How::Modelled),
+            how: Some(How::Fallback),
             by: "(projection)".into(),
             failure: None,
         });
@@ -749,7 +749,7 @@ pub(crate) mod tests {
         let plain = live.snapshot(false);
         let column = |label: &str| {
             let line = plain.lines().find(|line| line.trim_start().starts_with(label)).unwrap();
-            line.find(" live ").or_else(|| line.find(" modelled ")).expect(line)
+            line.find(" live ").or_else(|| line.find(" fallback ")).expect(line)
         };
         assert_eq!(column("power"), column("intensity"), "{plain}");
         assert_eq!(column("power"), column("forecast"), "{plain}");

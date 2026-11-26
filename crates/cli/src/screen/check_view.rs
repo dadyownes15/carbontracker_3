@@ -152,7 +152,6 @@ impl CheckView {
 fn colour(how: How) -> Color {
     match how {
         How::Live | How::Stated => Color::Green,
-        How::Modelled => Color::Yellow,
         How::Fallback => Color::Red,
     }
 }
