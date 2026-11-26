@@ -226,23 +226,11 @@ pub fn part(description: &SourceDescription) -> String {
     }
 }
 
-/// `what (provider)`, the one way every source names its provider. A
-/// provider's own qualifier, as in `neso (direct CO2)`, goes with what it
-/// reads: `GB direct CO2 (neso)`.
+/// `what (provider)`, the one way every source names its provider.
 pub fn provided(what: String, provider: Option<&str>) -> String {
-    match provider.map(qualified) {
-        Some((name, Some(qualifier))) => format!("{what} {qualifier} ({name})"),
-        Some((name, None)) => format!("{what} ({name})"),
+    match provider {
+        Some(provider) => format!("{what} ({provider})"),
         None => what,
-    }
-}
-
-/// A provider's name and its own qualifier: `neso (direct CO2)` gives
-/// `neso` and `direct CO2`.
-pub fn qualified(provider: &str) -> (&str, Option<&str>) {
-    match provider.split_once(" (") {
-        Some((name, qualifier)) => (name, Some(qualifier.trim_end_matches(')'))),
-        None => (provider, None),
     }
 }
 
@@ -738,8 +726,7 @@ mod tests {
 
     /// AC/OUT-37
     #[test]
-    fn a_providers_own_qualifier_goes_with_the_source_inside_one_pair_of_brackets() {
-        assert_eq!(provided("GB".to_owned(), Some("neso (direct CO2)")), "GB direct CO2 (neso)");
+    fn a_source_names_its_provider_in_brackets() {
         assert_eq!(provided("DK-DK2".to_owned(), Some("energinet")), "DK-DK2 (energinet)");
         assert_eq!(provided("DK-DK2".to_owned(), None), "DK-DK2");
     }

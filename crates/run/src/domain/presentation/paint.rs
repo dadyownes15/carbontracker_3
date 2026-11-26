@@ -2,7 +2,7 @@
 //! plain text is written from; only a console on a terminal calls these, so
 //! files and pipes stay plain.
 
-use super::{How, PREFIX, Row, SourceLine, Summary, qualified};
+use super::{How, PREFIX, Row, SourceLine, Summary};
 
 fn paint(code: &str, text: &str) -> String {
     format!("\x1b[{code}m{text}\x1b[0m")
@@ -31,20 +31,10 @@ pub fn source_line(line: &SourceLine) -> String {
         "" => " ".repeat(10),
         kind => paint("2", &format!("{kind:<10}")),
     };
-    let (name, qualifier) = match &line.provider {
-        Some(provider) => {
-            let (name, qualifier) = qualified(provider);
-            (Some(name), qualifier)
-        }
-        None => (None, None),
+    let what = match &line.provider {
+        Some(provider) => format!("{} {}", line.what, paint("2", &format!("({provider})"))),
+        None => line.what.clone(),
     };
-    let mut what = line.what.clone();
-    if let Some(qualifier) = qualifier {
-        what = format!("{what} {qualifier}");
-    }
-    if let Some(name) = name {
-        what = format!("{what} {}", paint("2", &format!("({name})")));
-    }
     match line.how {
         Some(how) => {
             let word = how.word();
@@ -128,8 +118,8 @@ mod tests {
             format!("           {}   cpu {}", colour("31", "fallback"), dim("(generic-cpu)"))
         );
         assert_eq!(
-            source_line(&line("intensity", Some(How::Live), "GB", Some("neso (direct CO2)"))),
-            format!("{} {}       GB direct CO2 {}", dim("intensity "), colour("32", "live"), dim("(neso)"))
+            source_line(&line("intensity", Some(How::Live), "GB", Some("neso"))),
+            format!("{} {}       GB {}", dim("intensity "), colour("32", "live"), dim("(neso)"))
         );
         assert_eq!(source_line(&line("power", None, "nothing found", None)), format!("{} nothing found", dim("power     ")));
     }

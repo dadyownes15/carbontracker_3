@@ -286,7 +286,7 @@ async fn coordinates_no_source_covers_fall_to_the_global_average_without_a_reque
 
     let resolution = probe(&server, config(Some(open_sea), false)).await;
 
-    for candidate in ["electricity-maps", "energinet", "neso (direct CO2)", "energy-charts (CO2eq)", "country-average"] {
+    for candidate in ["electricity-maps", "energinet", "neso", "energy-charts", "country-average"] {
         declined(&resolution, candidate);
     }
     assert!(serving(&resolution, "global-average"));

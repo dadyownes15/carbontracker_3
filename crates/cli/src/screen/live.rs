@@ -417,7 +417,7 @@ fn stale(value: String, failed: bool) -> String {
 
 
 /// A source by what it reads, marked with its provider: `gpu (nvml)`,
-/// `DK-DK2 (electricity-maps)`, `GB direct CO2 (neso)`.
+/// `DK-DK2 (electricity-maps)`, `GB (neso)`.
 fn named(source: &Source) -> String {
     presentation::provided(presentation::part(&source.description), Some(source.served_by))
 }

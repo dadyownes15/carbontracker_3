@@ -338,7 +338,8 @@ async fn the_forecast_declines_what_the_intensity_declines() {
 
 /// AC/OPEN-18
 #[test]
-fn the_candidate_name_says_neso_counts_direct_co2() {
-    assert_eq!(NESO, "neso (direct CO2)");
+fn each_open_source_is_named_by_its_publisher_alone() {
+    assert_eq!(NESO, "neso");
+    assert_eq!(crate::adapters::intensity::energy_charts::ENERGY_CHARTS, "energy-charts");
     assert_eq!(NESO_URL, "https://api.carbonintensity.org.uk");
 }
