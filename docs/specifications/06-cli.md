@@ -159,8 +159,8 @@ text, so it stays in the terminal's scrollback. <!-- AC/FE-80 -->
 `check` prints the rows below and exits. <!-- AC/FE-81 -->
 
 **Piped, `check` prints to stdout one row per value it would use**: power, location,
-intensity and forecast, each with how it is obtained (`live`, `stated`,
-`modelled` or `fallback`) and what it is: the power components, the place, the
+intensity and forecast, each with how it is obtained (`live`, `stated`
+or `fallback`, which covers modelled and assumed values) and what it is: the power components, the place, the
 kind of intensity and forecast. Power gets one row per way of obtaining it.
 Then, for each keyed service, where its key came from, and the providers
 serving. It exits 0. A location row is left out when the intensity is

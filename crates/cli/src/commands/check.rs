@@ -38,7 +38,6 @@ pub fn check(args: &Args) -> Result<i32, String> {
 pub(crate) enum How {
     Live,
     Stated,
-    Modelled,
     Fallback,
 }
 
@@ -47,8 +46,7 @@ impl How {
         match fidelity {
             Fidelity::Measured => Self::Live,
             Fidelity::Stated => Self::Stated,
-            Fidelity::Modelled => Self::Modelled,
-            Fidelity::Assumed => Self::Fallback,
+            Fidelity::Modelled | Fidelity::Assumed => Self::Fallback,
         }
     }
 
@@ -56,17 +54,14 @@ impl How {
         match self {
             Self::Live => "live",
             Self::Stated => "stated",
-            Self::Modelled => "modelled",
             Self::Fallback => "fallback",
         }
     }
 
-    /// ANSI colour: green for live or stated, yellow for modelled, red for
-    /// fallback.
+    /// ANSI colour: green for live or stated, red for fallback.
     pub(crate) fn colour(self) -> &'static str {
         match self {
             Self::Live | Self::Stated => "32",
-            Self::Modelled => "33",
             Self::Fallback => "31",
         }
     }
