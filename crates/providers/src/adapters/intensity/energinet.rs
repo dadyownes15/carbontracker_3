@@ -14,8 +14,8 @@ use crate::ports::{Outcome, Probed};
 use carbontracker::{Cooldown, Provider, ProviderError, ProviderId, ProviderResponse, Reading, Sample, SourceId};
 use carbontracker::{Fidelity, GridLocation, SourceDescription, Timestamp};
 
-/// The candidate's name: Energinet publishes direct CO2 from production.
-pub(crate) const ENERGINET: &str = "energinet (direct CO2)";
+/// The candidate's name. Energinet publishes direct CO2 from production.
+pub(crate) const ENERGINET: &str = "energinet";
 pub(crate) const ENERGINET_URL: &str = "https://api.energidataservice.dk";
 /// A new figure is published every five minutes.
 const ENERGINET_COOLDOWN: Duration = Duration::from_secs(60);
@@ -177,7 +177,7 @@ fn blocking_get(url: String, params: &[(&str, String)]) -> Result<serde_json::Va
 }
 
 fn unreachable(error: reqwest::Error) -> ProviderError {
-    ProviderError::Unavailable(format!("Energi Data Service: {error}"))
+    ProviderError::Unavailable(crate::adapters::http::failure("Energi Data Service", &error))
 }
 
 /// The error for a status that refuses the request, if it does.

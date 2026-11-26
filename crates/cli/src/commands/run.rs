@@ -6,7 +6,7 @@
 //! command runs, and forwards SIGTERM, then finishes normally.
 
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, IsTerminal};
 use std::process::ExitStatus;
 
 use carbontracker_run::presentation::{self, prefixed};
@@ -34,7 +34,8 @@ pub fn track(args: &Args, command: &[OsString]) -> Result<i32, String> {
 
     let name = args::span_name(command);
     let verbosity = if args.verbose { Verbosity::Everything } else { Verbosity::Normal };
-    let console = Console { out: Box::new(io::stderr()), verbosity, layout: Layout::Summary { title: name.clone() } };
+    let colour = io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    let console = Console { out: Box::new(io::stderr()), verbosity, colour, layout: Layout::Summary { title: name.clone() } };
     let sinks = standard_sinks(console, folder.as_ref()).map_err(|error| error.to_string())?;
     let run = carbontracker_run::start(RunConfig { probe, tracker, frontend: "cli",
         project: args.project().map(str::to_owned),

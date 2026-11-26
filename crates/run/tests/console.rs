@@ -12,7 +12,7 @@ use carbontracker::{
     ProviderId, ReadoutId, ReportWarning, Sample, SampleKind, SessionReport, Skip, SourceDescription, SourceId,
     SourceSelection, SpanId, SpanReport, Timestamp, TrackerError, TrackerEvent, Usage, Work,
 };
-use carbontracker_run::{Block, ConsoleSink, Item, Layout, Started, Verbosity, deliver, record};
+use carbontracker_run::{Block, ConsoleSink, ForecastSource, Item, Layout, Started, Verbosity, deliver, record};
 use common::Shared;
 
 const VERBOSITIES: [Verbosity; 3] = [Verbosity::Quiet, Verbosity::Normal, Verbosity::Everything];
@@ -77,6 +77,35 @@ fn started_on(location: Option<record::Location>) -> Item {
     }))
 }
 
+/// A start with the projected forecast, and the run's `epochs`.
+fn started_forecasting(epochs: Option<record::Epochs>) -> Item {
+    let Item::Started(started) = started_on(None) else { unreachable!() };
+    let mut started = Started::clone(&started);
+    started.header.epochs = epochs;
+    started.forecast = Some(ForecastSource {
+        location: GridLocation::Global,
+        horizon: Duration::from_secs(24 * 3600),
+        fidelity: Fidelity::Assumed,
+        served_by: "projection",
+    });
+    Item::Started(Arc::new(started))
+}
+
+/// AC/OUT-37
+#[test]
+fn the_forecast_line_prints_only_when_a_prediction_reads_it() {
+    let printed = |epochs| {
+        let (mut sink, out) = console(Verbosity::Normal);
+        deliver(&mut sink, &started_forecasting(epochs)).unwrap();
+        out.text()
+    };
+    let epochs = |before_prediction| Some(record::Epochs { planned: 5, monitor: 5, before_prediction });
+    let line = "forecast   fallback   projects the current intensity (projection)";
+    assert!(!printed(None).contains("forecast"), "{}", printed(None));
+    assert!(!printed(epochs(0)).contains("forecast"), "{}", printed(epochs(0)));
+    assert!(printed(epochs(1)).contains(line), "{}", printed(epochs(1)));
+}
+
 fn readout(id: usize, observation: Observation) -> Item {
     Item::Event(TrackerEvent::ReadoutLanded {
         readout: ReadoutId(id),
@@ -118,6 +147,8 @@ fn every_failed_read_is_a_warning_at_every_verbosity_and_nothing_else_is() {
         assert_eq!(warnings.len(), 3, "{verbosity:?}: {text}");
         for warning in &warnings {
             assert!(warning.contains("nvml") && warning.contains("unavailable"), "{verbosity:?}: {warning}");
+            // What was read, then its provider in one pair of brackets, as check names it.
+            assert!(warning.starts_with("CarbonTracker: WARNING - gpu (nvml) was not read: "), "{verbosity:?}: {warning}");
         }
         printed.push(warnings);
     }
@@ -255,6 +286,17 @@ fn a_span_reports_warning_names_the_span_at_every_verbosity() {
         let text = out.text();
         assert_eq!(warnings(&text), [expected.as_str()], "{verbosity:?}: {text}");
     }
+}
+
+/// AC/OUT-36
+#[test]
+fn a_session_warning_a_span_already_printed_prints_once() {
+    let thin = ReportWarning::ThinCoverage { samples: 0, sources: vec!["NVIDIA A100 (gpu)".to_owned()] };
+    let (mut sink, out) = console(Verbosity::Quiet);
+    deliver(&mut sink, &started()).unwrap();
+    deliver(&mut sink, &settled_as("train", vec![thin.clone()])).unwrap();
+    deliver(&mut sink, &ended(vec![thin.clone()])).unwrap();
+    assert_eq!(out.text(), format!("CarbonTracker: WARNING - train: {thin}\n"));
 }
 
 /// AC/OUT-36

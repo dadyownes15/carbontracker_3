@@ -24,7 +24,7 @@ use carbontracker::{Fidelity, GridLocation, SourceDescription, Timestamp};
 pub(crate) const NESO_URL: &str = "https://api.carbonintensity.org.uk";
 /// The candidate's name. NESO's factors count the CO2 emitted at generation,
 /// not lifecycle emissions.
-pub(crate) const NESO: &str = "neso (direct CO2)";
+pub(crate) const NESO: &str = "neso";
 /// NESO publishes every half-hour.
 const NESO_COOLDOWN: Duration = Duration::from_secs(5 * 60);
 /// How long a request made from a read may wait on the service.
@@ -189,7 +189,7 @@ fn blocking_latest(base_url: &str, target: Target) -> Result<Sample, ProviderErr
 }
 
 fn unreachable(error: reqwest::Error) -> ProviderError {
-    ProviderError::Unavailable(format!("NESO: {error}"))
+    ProviderError::Unavailable(crate::adapters::http::failure("NESO", &error))
 }
 
 fn not_json() -> ProviderError {

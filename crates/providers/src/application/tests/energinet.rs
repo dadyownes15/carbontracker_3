@@ -248,8 +248,8 @@ async fn a_figure_for_an_interval_still_to_come_is_never_read() {
 
 /// AC/OPEN-18
 #[test]
-fn the_candidate_name_says_the_publishers_basis() {
-    assert_eq!(ENERGINET, "energinet (direct CO2)");
+fn the_candidate_name_is_the_publishers_alone() {
+    assert_eq!(ENERGINET, "energinet");
 }
 
 /// AC/OPEN-19

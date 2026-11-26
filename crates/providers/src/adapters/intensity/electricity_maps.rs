@@ -63,12 +63,13 @@ impl std::fmt::Display for Query {
 
 const NO_KEY: &str = "no Electricity Maps key";
 
-/// Why no query answered: each query's refusal, or that there was none to ask.
-fn none_answered(refusals: Vec<String>) -> String {
-    if refusals.is_empty() {
-        "no location Electricity Maps can be asked about".to_owned()
-    } else {
-        refusals.join("; ")
+/// Why no query answered: the one reason when every query failed alike,
+/// else each query's, or that there was none to ask.
+fn none_answered(refusals: Vec<(String, String)>) -> String {
+    match refusals.first() {
+        None => "no location Electricity Maps can be asked about".to_owned(),
+        Some((_, first)) if refusals.iter().all(|(_, error)| error == first) => first.clone(),
+        Some(_) => refusals.iter().map(|(query, error)| format!("{query}: {error}")).collect::<Vec<_>>().join("; "),
     }
 }
 
@@ -195,7 +196,7 @@ pub fn check_key(key: &ApiKey) -> KeyCheck {
 }
 
 fn unreachable(error: reqwest::Error) -> ProviderError {
-    ProviderError::Unavailable(format!("Electricity Maps: {error}"))
+    ProviderError::Unavailable(crate::adapters::http::failure("Electricity Maps", &error))
 }
 
 /// The error for a status that refuses the request, if it does.
@@ -270,7 +271,7 @@ pub(crate) async fn probe_electricity_maps(
                 answer = Some(answered);
                 break;
             }
-            Err(error) => refusals.push(format!("{query}: {error}")),
+            Err(error) => refusals.push((query.to_string(), error.to_string())),
         }
     }
     let (zone, current) = answer.ok_or_else(|| none_answered(refusals))?;
@@ -353,7 +354,7 @@ pub(crate) async fn probe_electricity_maps_forecast(
                 answer = Some(answered);
                 break;
             }
-            Err(error) => refusals.push(format!("{query}: {error}")),
+            Err(error) => refusals.push((query.to_string(), error.to_string())),
         }
     }
     let (zone, curve) = answer.ok_or_else(|| none_answered(refusals))?;
@@ -388,6 +389,21 @@ fn fetch_forecast(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// AC/PROV-53
+    #[test]
+    fn the_same_failure_for_every_query_is_said_once() {
+        let failed = |pairs: &[(&str, &str)]| {
+            none_answered(pairs.iter().map(|(query, error)| ((*query).to_owned(), (*error).to_owned())).collect())
+        };
+        let offline = "unavailable: cannot connect to Electricity Maps: no network, or it is down";
+        assert_eq!(failed(&[("(55.68, 12.57)", offline), ("zone DK", offline)]), offline);
+        assert_eq!(
+            failed(&[("zone DK-DK2", "access denied: no sub-zones"), ("zone DK", "unavailable: answered 500")]),
+            "zone DK-DK2: access denied: no sub-zones; zone DK: unavailable: answered 500"
+        );
+        assert_eq!(failed(&[]), "no location Electricity Maps can be asked about");
+    }
     use crate::domain::location::{Coordinates, CountryCode, Estimate};
 
     fn zone(id: &str) -> Query {

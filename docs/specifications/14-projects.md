@@ -83,8 +83,9 @@ machine, exits 2 naming the project.** <!-- AC/PRJ-14 -->
 **A project name `--project` refuses (AC/PRJ-4) exits 2 naming it**, before
 anything is read. <!-- AC/PRJ-15 -->
 
-**Without `--project`, `report` still needs a path**: the usage goes to stderr
-and the exit code is 2. <!-- AC/PRJ-16 -->
+**Without `--project` or a path, `report` reads the log folder**
+([06](06-cli.md)); with no log folder it asks for a path and exits 2.
+<!-- AC/PRJ-16 -->
 
 **A link whose run folder is gone, deleted or moved, is named with the reason
 and left out**; the rest of the report prints as usual. <!-- AC/PRJ-17 -->

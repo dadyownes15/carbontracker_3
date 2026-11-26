@@ -40,10 +40,11 @@ fn open_check(args: &Args) -> Result<CheckView, String> {
     let keys = args
         .keys()?
         .iter()
-        .map(|(service, (key, _))| KeyNote {
+        .map(|(service, (key, origin))| KeyNote {
             service: service.name(),
             hint: key.hint().to_string(),
             candidate: candidate_of(*service),
+            origin: origin.to_string(),
         })
         .collect();
     let feed = run::start(args)?;
@@ -57,6 +58,20 @@ pub fn check(args: &Args) -> Result<i32, String> {
     let result = check_loop(&mut terminal, &mut view);
     ratatui::restore();
     result.map_err(|error| format!("the terminal failed: {error}"))?;
+    print!("{}", view.close());
+    Ok(0)
+}
+
+/// Off a terminal: the check view unseen until its first reading, or
+/// `READ_WAIT` without one; then what it showed, on stdout.
+pub fn check_once(args: &Args) -> Result<i32, String> {
+    const READ_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+    let mut view = open_check(args)?;
+    let deadline = std::time::Instant::now() + READ_WAIT;
+    while view.live.rate().is_none() && view.live.error.is_none() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        view.pump();
+    }
     print!("{}", view.close());
     Ok(0)
 }

@@ -153,6 +153,7 @@ impl Tracker {
             out: Box::new(PyWriter::new(write)),
             // A profiler prints its own table.
             verbosity: if verbose > 0 && !profiler { Verbosity::Normal } else { Verbosity::Quiet },
+            colour: false,
             layout: Layout::Legacy { decimals: decimal_precision, equivalents: interpretable },
         };
         let sinks = standard_sinks(console, folder.as_ref()).map_err(|error| PyOSError::new_err(error.to_string()))?;

@@ -250,7 +250,7 @@ async fn a_stated_global_or_pinned_intensity_touches_no_network() {
 #[tokio::test]
 async fn an_ip_service_that_is_slow_failing_or_countryless_falls_to_the_global_average() {
     for (answer, why) in [
-        (ok(IPINFO).set_delay(Duration::from_secs(5)), "timed out"),
+        (ok(IPINFO).set_delay(Duration::from_secs(5)), "ipinfo.io did not answer in time"),
         (ResponseTemplate::new(500), "500"),
         (ok(r#"{"ip":"127.0.0.1","bogon":true}"#), "no country"),
     ] {
@@ -276,6 +276,23 @@ async fn an_ip_service_that_is_slow_failing_or_countryless_falls_to_the_global_a
             "{read:?}"
         );
     }
+}
+
+/// AC/OPEN-10 AC/OPEN-24
+#[tokio::test]
+async fn coordinates_no_source_covers_fall_to_the_global_average_without_a_request() {
+    let server = MockServer::start().await;
+    let open_sea = GridLocation::Coordinates { latitude: 0.0, longitude: -150.0 };
+
+    let resolution = probe(&server, config(Some(open_sea), false)).await;
+
+    for candidate in ["electricity-maps", "energinet", "neso", "energy-charts", "country-average"] {
+        declined(&resolution, candidate);
+    }
+    assert!(serving(&resolution, "global-average"));
+    assert!(server.received_requests().await.unwrap().is_empty(), "{resolution}");
+    let (intensity, _) = grid_sources(&resolution);
+    assert_eq!(intensity, SourceDescription::Intensity { location: GridLocation::Global, fidelity: Fidelity::Assumed });
 }
 
 /// AC/PROV-7 AC/PROV-8 AC/PROV-53

@@ -299,6 +299,7 @@ dependencies = [
  "core-foundation",
  "core-foundation-sys",
  "futures",
+ "libloading",
  "macmon",
  "nvml-wrapper",
  "reqwest",

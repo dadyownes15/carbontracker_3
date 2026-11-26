@@ -5,6 +5,7 @@
 //! - [system]: this host, where it is, and the config file.
 
 pub(crate) mod constant;
+pub(crate) mod http;
 pub(crate) mod intensity;
 pub(crate) mod power;
 pub(crate) mod system;

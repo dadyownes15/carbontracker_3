@@ -25,6 +25,8 @@ mod domain;
 mod ports;
 
 pub use adapters::constant::StaticProvider;
+pub use adapters::intensity::constant::WORLD_AVERAGE_G_CO2_PER_KWH;
+pub use adapters::intensity::country_average::national_average;
 pub use adapters::intensity::electricity_maps::{check_key, KeyCheck, URL_VARIABLE};
 pub use adapters::system::config_file;
 pub use adapters::system::process::process_tree;

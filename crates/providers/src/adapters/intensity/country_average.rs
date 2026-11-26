@@ -28,6 +28,11 @@ static INTENSITIES: LazyLock<HashMap<CountryCode, f64>> = LazyLock::new(|| {
         .collect()
 });
 
+/// The table's figure for `country_code`, in gCO2eq/kWh, if it has one.
+pub fn national_average(country_code: &str) -> Option<f64> {
+    country_intensity(CountryCode::new(country_code)?)
+}
+
 /// The table's figure for `country`, if it has one.
 pub(crate) fn country_intensity(country: CountryCode) -> Option<f64> {
     INTENSITIES.get(&country).copied()

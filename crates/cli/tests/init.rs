@@ -101,7 +101,7 @@ fn a_key_that_works_is_saved_with_the_zones_it_reaches_then_checked() {
         .success()
         .stdout(contains("Key works: 2 zones (DK-DK1, DK-DK2)"))
         .stdout(contains("Saved to"))
-        .stdout(contains("  key        electricity_maps …c3d4, from the config file"))
+        .stdout(contains("…c3d4").and(contains("electricity_maps, from the config file")))
         .stdout(contains("secret").not())
         .stderr(contains("secret").not());
     assert_eq!(*seen.lock().unwrap(), [("/v3/zones".to_owned(), Some("secret-c3d4".to_owned()))]);
@@ -134,7 +134,7 @@ fn an_unreachable_api_saves_the_key_unchecked_with_a_warning() {
         .success()
         .stderr(contains("could not check the key"))
         .stderr(contains("saved unchecked"))
-        .stdout(contains("  key        electricity_maps …c3d4, from the config file"));
+        .stdout(contains("…c3d4").and(contains("electricity_maps, from the config file")));
     assert!(config(dir.path()).exists());
 }
 
@@ -153,7 +153,7 @@ fn probing_asks_electricity_maps_at_the_address_given() {
         .args(["--power", "10", "--zone", "DK-DK1", "check"])
         .assert()
         .success()
-        .stdout(contains("Electricity Maps for DK-DK1"));
+        .stdout(contains("DK-DK1 (electricity-maps)"));
     assert!(seen.lock().unwrap().iter().any(|(path, _)| path == "/v3/carbon-intensity/latest"));
 }
 

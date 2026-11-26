@@ -152,9 +152,9 @@ fn report_refuses_a_project_name_it_cannot_take() {
 
 /// AC/PRJ-16
 #[test]
-fn report_without_project_still_needs_a_path() {
+fn report_without_project_or_log_folder_asks_for_a_path() {
     let dir = tempfile::tempdir().unwrap();
-    bare(dir.path()).args(["report"]).assert().code(2).stderr(contains("Usage"));
+    bare(dir.path()).args(["report"]).assert().code(2).stderr(contains("carbontracker report PATH"));
 }
 
 /// AC/PRJ-17, AC/PRJ-22

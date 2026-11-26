@@ -10,7 +10,6 @@ use std::time::Duration;
 use carbontracker::{GramsCo2ePerKwh, GridLocation, PowerUsageEffectiveness, TrackerConfig, Watts};
 use carbontracker_providers::{
     ApiKey, Coordinates, CountryCode, GridConfig, KeyedService, Measure, Pinned, ProbeConfig,
-    ProviderRegistry,
 };
 use carbontracker_providers::config_file::{self as config, KEY_VARIABLE};
 use carbontracker_run::presentation;
@@ -113,7 +112,7 @@ pub struct Args {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum Action {
-    /// Show what would be measured, and what wasn't and why.
+    /// Show the available sources, and what wasn't chosen and why.
     Check,
     /// Save an API key (a menu on a terminal), or attach carbontracker to a Slurm script.
     Init {
@@ -135,8 +134,8 @@ pub enum Action {
         /// the runs linked from the project's folder on this machine.
         #[arg(long, value_name = "NAME")]
         project: Option<String>,
-        /// Record files, or folders to search for them.
-        #[arg(value_name = "PATH", required_unless_present = "project")]
+        /// Record files, or folders to search for them; by default the log folder.
+        #[arg(value_name = "PATH")]
         paths: Vec<PathBuf>,
     },
     #[command(external_subcommand)]
@@ -179,15 +178,6 @@ impl Args {
     /// neither was given.
     pub fn action(&self) -> Option<Action> {
         self.action.clone()
-    }
-
-    /// The registry to probe with, from the flags and `keys`.
-    ///
-    /// # Errors
-    ///
-    /// A message naming what is wrong, for exit code 2.
-    pub fn registry(&self, keys: &Keys) -> Result<ProviderRegistry, String> {
-        ProviderRegistry::new(self.probe_config(keys)).map_err(|error| error.to_string())
     }
 
     /// What to probe for, from the flags and `keys`.
@@ -254,6 +244,11 @@ impl Args {
     /// The run's name.
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
+    }
+
+    /// The folder runs write their logs to, even under `--no-log`.
+    pub fn log_folder(&self) -> &Path {
+        &self.log_dir
     }
 
     pub fn log_dir(&self) -> Option<&Path> {

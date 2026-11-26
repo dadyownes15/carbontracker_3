@@ -18,6 +18,8 @@ use crate::ports::Sink;
 pub struct Console {
     pub out: Box<dyn Write + Send>,
     pub verbosity: Verbosity,
+    /// Whether `out` is a terminal that takes colour; `output.log` never does.
+    pub colour: bool,
     pub layout: Layout,
 }
 
@@ -36,12 +38,9 @@ pub enum Verbosity {
 /// verbosity, in the same layout) and the record.
 pub fn standard_sinks(console: Console, folder: Option<&Folder>) -> io::Result<Vec<Box<dyn Sink>>> {
     let logs = folder.map(|folder| folder.path().display().to_string());
-    let mut sinks: Vec<Box<dyn Sink>> = vec![Box::new(ConsoleSink::new(
-        console.out,
-        console.verbosity,
-        console.layout.clone(),
-        logs.clone(),
-    ))];
+    let mut sinks: Vec<Box<dyn Sink>> = vec![Box::new(
+        ConsoleSink::new(console.out, console.verbosity, console.layout.clone(), logs.clone()).with_colour(console.colour),
+    )];
     if let Some(folder) = folder {
         let output = BufWriter::new(File::create_new(folder.output_log())?);
         sinks.push(Box::new(ConsoleSink::new(
