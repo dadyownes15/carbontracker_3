@@ -33,6 +33,10 @@ impl ProbeConfig {
         if matches!(&self.measure, Measure::Only(domains) if domains.is_empty()) {
             return Err(ProbeConfigError::NothingToMeasure);
         }
+        // A whole-machine draw can't be split, so naming parts would drop it all.
+        if self.pinned.power.is_some() && self.measure != Measure::All {
+            return Err(ProbeConfigError::PowerWithComponents);
+        }
         if self.grid.forecast_horizon.is_zero() {
             return Err(ProbeConfigError::ZeroForecastHorizon);
         }
@@ -199,6 +203,8 @@ impl fmt::Debug for ApiKey {
 pub enum ProbeConfigError {
     #[error("no power domain is selected to measure")]
     NothingToMeasure,
+    #[error("the whole machine's power can't be split into components; measure every component, or state the CPU or GPU power instead")]
+    PowerWithComponents,
     #[error("the forecast horizon must be above zero")]
     ZeroForecastHorizon,
     #[error("the grid location is invalid: {0}")]
@@ -210,6 +216,19 @@ pub enum ProbeConfigError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// AC/PROV-4
+    #[test]
+    fn a_whole_machine_draw_is_refused_with_named_components() {
+        let pinned = |measure| ProbeConfig {
+            measure,
+            pinned: Pinned { power: Some(Watts::new(10.0).unwrap()), ..Pinned::default() },
+            ..ProbeConfig::default()
+        };
+        assert_eq!(pinned(Measure::All).validate(), Ok(()));
+        assert_eq!(pinned(Measure::Only(vec![PowerDomain::Cpu])).validate(), Err(ProbeConfigError::PowerWithComponents));
+        assert!(ProbeConfigError::PowerWithComponents.to_string().contains("whole machine"));
+    }
 
     #[test]
     fn every_keyed_service_is_listed_and_found_by_each_name() {

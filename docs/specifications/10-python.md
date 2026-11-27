@@ -43,7 +43,8 @@ keyword-only. <!-- AC/PY-2 -->
 **Every invalid or conflicting argument raises `ValueError` before anything is
 probed or started, whatever `ignore_errors` says.** Refused: two locations; a
 zone that is empty; a country that is not two letters; coordinates outside
-±90, ±180; `power` with `cpu_power` or `gpu_power`; a negative draw; an
+±90, ±180; `power` with `cpu_power` or `gpu_power`, with `components` other
+than `all`, or in profiler mode; a negative draw; an
 intensity not above zero; `pue` below 1; an `update_interval` not above zero;
 `components` other than `all`, `cpu`, `gpu`, `cpu,gpu`; a negative `epochs`
 or `decimal_precision`; `api_keys` that is not a dict of strings, or names a

@@ -18,7 +18,7 @@ tracked the same way.
 ## Install
 
 ```sh
-pip install --no-index --find-links https://github.com/dadyownes15/carbontracker_3/releases/expanded_assets/v3.0.0.dev1 carbontracker
+pip install --no-index --find-links https://github.com/dadyownes15/carbontracker_3/releases/expanded_assets/v3.0.0.dev2 carbontracker
 ```
 
 | Requires | |

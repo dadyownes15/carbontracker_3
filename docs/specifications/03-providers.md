@@ -40,7 +40,9 @@ power is not probed. Giving the processor's or the graphics card's draw settles
 that part and leaves the rest to be probed. Giving the grid's intensity settles
 both the intensity and the forecast. Giving the location means nothing is sent
 to the geolocation service. Naming which parts to measure drops the rest before
-any candidate runs. <!-- AC/PROV-4 -->
+any candidate runs. The machine's draw can't be split into parts, so it is
+refused with any parts named, and so with profiler mode, which names them.
+<!-- AC/PROV-4 -->
 
 **Whatever is left is tried best first.**
 

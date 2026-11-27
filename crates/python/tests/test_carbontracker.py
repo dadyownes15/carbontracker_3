@@ -597,6 +597,8 @@ INVALID = [
     (dict(zone=""), "zone"),
     (dict(global_=True, power=10.0, cpu_power=5.0), "whole machine"),
     (dict(global_=True, power=10.0, gpu_power=5.0), "whole machine"),
+    (dict(global_=True, power=10.0, components="cpu"), "components"),
+    (dict(global_=True, power=10.0, mode="profiler"), "components"),
     (dict(global_=True, power=-1.0), "power"),
     (dict(global_=True, cpu_power=-1.0), "cpu_power"),
     (dict(global_=True, gpu_power=-1.0), "gpu_power"),
