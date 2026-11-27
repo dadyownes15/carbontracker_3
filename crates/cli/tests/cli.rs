@@ -291,6 +291,7 @@ fn every_bad_value_exits_2_naming_it_before_probing() {
         (&["--country", "DK", "--coordinates", "55.68,12.57"], "--coordinates"),
         (&["--power", "1", "--cpu-power", "1"], "--cpu-power"),
         (&["--power", "1", "--gpu-power", "1"], "--gpu-power"),
+        (&["--power", "1", "--components", "cpu"], "components"),
         (&["--no-log", "--log-dir", "out"], "--log-dir"),
     ];
     for (flags, named) in cases {

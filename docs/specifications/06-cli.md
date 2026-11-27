@@ -57,8 +57,8 @@ Every option applies to tracking and to `check`.
 | Output | `--log-dir`, `--no-log`, `-v`/`--verbose` | `./logs` | <!-- AC/FE-6 -->
 | Keys | `--api-keys` | environment, then config file | <!-- AC/FE-7 -->
 
-**`--power` is the whole machine**, so it is refused with `--cpu-power` or
-`--gpu-power`. `--cpu-power` or `--gpu-power` alone replaces that component
+**`--power` is the whole machine**, so it is refused with `--cpu-power`,
+`--gpu-power` or `--components` other than `all`. `--cpu-power` or `--gpu-power` alone replaces that component
 and leaves the rest probed. <!-- AC/FE-37 -->
 
 **`--no-log` is refused with `--log-dir`.** <!-- AC/FE-38 -->
